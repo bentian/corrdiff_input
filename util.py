@@ -5,12 +5,27 @@ def regrid_dataset(ds, grid):
     # Regrid data over the spatial dimensions for all timestamps, based on CWA coordinates.
     remap = xe.Regridder(ds, grid, method="bilinear")
 
+    print("Grid =>")
+    print(grid)
+
+    print("\nDataset =>")
+    print(ds)
+
+    print("\nBEFORE regrid_dataset =>")
+    for t in range(1):
+        print(ds.isel(time=t)['precipitation'].values[1][:10])
+
     # Regrid each time step while keeping the original coordinates and dimensions
     ds_regrid = xr.concat(
         [remap(ds.isel(time=i)).assign_coords(time=ds.time[i])
             for i in range(ds.sizes["time"])],
         dim="time"
     )
+
+    print("\nAFTER regrid_dataset =>")
+    for t in range(1):
+        print(ds_regrid.isel(time=t)['precipitation'].values[1][:10])
+    print("===")
 
     return ds_regrid
 
