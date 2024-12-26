@@ -89,6 +89,8 @@ def generate_corrdiff_zarr(start_date, end_date):
 
     # Extract CorrDiff data's grid and coordinates for reference.
     cwa = xr.open_zarr(data_path["cwa_ref"])
+    cwa = cwa.isel(south_north=slice(0, 280), west_east=slice(0, 220))
+
     grid = xr.Dataset({ "lat": cwa.XLAT, "lon": cwa.XLONG })
     grid_coords = { key: cwa.coords[key] for key in CORRDIFF_GRID_COORD_KEYS }
 
