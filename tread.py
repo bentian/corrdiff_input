@@ -1,9 +1,10 @@
+import os
 import dask.array as da
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-from util import regrid_dataset
+from util import regrid_dataset, is_local_testing
 
 TREAD_CHANNELS_ORIGINAL = {
     # Baseline
@@ -24,6 +25,13 @@ TREAD_CHANNELS = {
     "T2MIN": "minimum_temperature_2m",
 }
 
+def get_file_paths(folder, start_date, end_date):
+    date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
+    return [
+        os.path.join(folder, f"wrfo2D_d02_{yyyymm}.nc")
+        for yyyymm in date_range
+    ]
+
 def get_tread_dataset(file, grid, start_date, end_date):
     channel_keys_original = list(TREAD_CHANNELS_ORIGINAL.keys())
     surface_vars = ['RAINC', 'RAINNC'] + channel_keys_original
@@ -32,8 +40,9 @@ def get_tread_dataset(file, grid, start_date, end_date):
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
 
     # Read surface level data.
+    tread_files = get_file_paths(file, start_date, end_date)
     tread_surface = xr.open_mfdataset(
-        file,
+        tread_files,
         preprocess=lambda ds: ds[surface_vars].assign_coords(
             time=pd.to_datetime(ds['Time'].values.astype(str), format='%Y-%m-%d_%H:%M:%S')
         ).sel(time=slice(start_datetime, end_datetime))

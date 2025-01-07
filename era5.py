@@ -1,42 +1,43 @@
 import os
 import dask.array as da
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from util import regrid_dataset, is_local_testing
 
 pressure_levels = [500, 700, 850, 925]
 
-def get_prs_paths(folder, subfolder, variables, start_date):
-    year = str(start_date)[:4]
+def get_prs_paths(folder, subfolder, variables, start_date, end_date):
+    date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     if is_local_testing():
         return [
-            os.path.join(folder, f"./ERA5_PRS_{var}_201801_r1440x721_day.nc")
-            for var in variables
+            os.path.join(folder, f"ERA5_PRS_{var}_{yyyymm}_r1440x721_day.nc")
+            for var in variables for yyyymm in date_range
         ]
 
     return [
         os.path.join(
-            folder, "PRS", subfolder, var, str(year),
-            f"ERA5_PRS_{var}_{year}{month:02d}_r1440x721_day.nc"
+            folder, "PRS", subfolder, var, yyyymm[:4],
+            f"ERA5_PRS_{var}_{yyyymm}_r1440x721_day.nc"
         )
-        for var in variables for month in range(1, 13)
+        for var in variables for yyyymm in date_range
     ]
 
-def get_sfc_paths(folder, subfolder, variables, start_date):
-    year = str(start_date)[:4]
+def get_sfc_paths(folder, subfolder, variables, start_date, end_date):
+    date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     if is_local_testing():
         return [
-            os.path.join(folder, f"./ERA5_SFC_{var}_201801_r1440x721_day.nc")
+            os.path.join(folder, f"ERA5_SFC_{var}_201801_r1440x721_day.nc")
             for var in variables
         ]
 
     return [
         os.path.join(
-            folder, "SFC", subfolder, var, str(year),
-            f"ERA5_SFC_{var}_{year}{month:02d}_r1440x721_day.nc"
+            folder, "SFC", subfolder, var, yyyymm[:4],
+            f"ERA5_SFC_{var}_{yyyymm}_r1440x721_day.nc"
         )
-        for var in variables for month in range(1, 13)
+        for var in variables for yyyymm in date_range
     ]
 
 def get_era5_dataset(dir, grid, start_date, end_date):
@@ -45,11 +46,11 @@ def get_era5_dataset(dir, grid, start_date, end_date):
 
     # pressure_level
     duration = slice(str(start_date), str(end_date))
-    prs_paths = get_prs_paths(dir, "day", pressure_level_vars, start_date)
+    prs_paths = get_prs_paths(dir, "day", pressure_level_vars, start_date, end_date)
     era5_prs = xr.open_mfdataset(prs_paths, combine='by_coords').sel(level=pressure_levels, time=duration)
 
     # surface
-    sfc_paths = get_sfc_paths(dir, "day", surface_vars, start_date)
+    sfc_paths = get_sfc_paths(dir, "day", surface_vars, start_date, end_date)
     era5_sfc = xr.open_mfdataset(sfc_paths, combine='by_coords').sel(time=duration)
     era5_sfc['tp'] = era5_sfc['tp'] * 24 * 1000
     era5_sfc['tp'].attrs['units'] = 'mm/day' # Convert unit

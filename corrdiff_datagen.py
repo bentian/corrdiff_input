@@ -37,7 +37,7 @@ def generate_output_dataset(tread_file, era5_dir, grid, grid_coords, start_date,
     out = xr.Dataset(
         coords={
             **{key: coords[key] for key in CORRDIFF_GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2024-12-24 20:00:00", "ns"),  # Placeholder for timestamp
+            "XTIME": np.datetime64("2025-01-07 17:00:00", "ns"),  # Placeholder for timestamp
             "time": cwb_normalized.time,
             "cwb_variable": cwb_variable,
             "era5_scale": ("era5_channel", era5_scale.data)
@@ -72,22 +72,22 @@ def write_to_zarr(out_path, out_ds):
 
     print(f"Data successfully saved to [{out_path}]")
 
-def get_data_path(yyyymm):
+def get_data_path():
     # LOCAL
     if is_local_testing():
         return {
-            "tread_file": f"./data/wrfo2D_d02_{yyyymm}.nc",
+            "tread_dir": "./data/tread",
             "era5_dir": "./data/era5",
         }
 
     # REMOTE
     return {
-        "tread_file": f"/lfs/archive/TCCIP_data/TReAD/SFC/hr/wrfo2D_d02_{yyyymm}.nc",
+        "tread_dir": "/lfs/archive/TCCIP_data/TReAD/SFC/hr",
         "era5_dir": "/lfs/archive/Reanalysis/ERA5",
     }
 
 def generate_corrdiff_zarr(start_date, end_date):
-    data_path = get_data_path(str(start_date)[:6])
+    data_path = get_data_path()
 
     # Extract REF grid.
     ref = xr.open_dataset(REF_GRID_NC, engine='netcdf4')
@@ -95,7 +95,7 @@ def generate_corrdiff_zarr(start_date, end_date):
     grid_coords = { key: ref.coords[key] for key in CORRDIFF_GRID_COORD_KEYS }
 
     out = generate_output_dataset( \
-            data_path["tread_file"], data_path["era5_dir"], \
+            data_path["tread_dir"], data_path["era5_dir"], \
             grid, grid_coords, start_date, end_date)
     print(out)
 
