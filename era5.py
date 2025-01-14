@@ -3,6 +3,7 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import xarray as xr
+import re
 
 from util import regrid_dataset, create_and_process_dataarray, is_local_testing
 
@@ -12,7 +13,6 @@ ERA5_PRS_CHANNELS = {
     "t": "temperature",
     "u": "eastward_wind",
     "v": "northward_wind",
-    "w": "vertical_velocity",
 }
 ERA5_SFC_CHANNELS = {
     "tp" : "precipitation",
@@ -21,11 +21,15 @@ ERA5_SFC_CHANNELS = {
     "v10": "northward_wind_10m",
     "msl": "mean_sea_level_pressure",
 }
+ERA5_ADD_CHANNELS = {
+    "w850": "850hPa_vertical_velocity",
+    "q1000": "10000hPa_specific_humidity",
+}
 ERA5_ORO_CHANNEL = {
     "oro": "terrain_height"
 }
 ERA5_CHANNEL_NUM = \
-    len(ERA5_PRS_CHANNELS) * len(PRESSURE_LEVELS) + len(ERA5_SFC_CHANNELS) + len(ERA5_ORO_CHANNEL)
+    len(ERA5_PRS_CHANNELS) * len(PRESSURE_LEVELS) + len(ERA5_SFC_CHANNELS) + len(ERA5_ADD_CHANNELS) + len(ERA5_ORO_CHANNEL)
 
 def get_prs_paths(folder, subfolder, variables, start_date, end_date):
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
@@ -59,9 +63,32 @@ def get_sfc_paths(folder, subfolder, variables, start_date, end_date):
         for var in variables for yyyymm in date_range
     ]
 
+def read_add_vars(folder, subfolder, add_variables, start_date, end_date):
+    date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
+
+    addvar = []
+    for var in add_variables:
+        var_name = re.match(r"[a-zA-Z]+", var).group(0)
+        level = int(re.search(r"\d+", var).group(0))
+
+        paths = [
+            os.path.join(
+                folder if is_local_testing() else os.path.join(folder, "PRS", subfolder, var_name, yyyymm[:4]),
+                f"ERA5_PRS_{var_name}_{yyyymm}_r1440x721_day.nc"
+            )
+            for yyyymm in date_range
+        ]
+
+        ds = xr.open_mfdataset(paths, combine="by_coords").sel(level=level)
+        ds = ds.drop_vars("level").rename({var_name: var})
+        addvar.append(ds)
+
+    return xr.merge(addvar)
+
 def get_era5_dataset(dir, grid, start_date, end_date):
     pressure_level_vars = list(ERA5_PRS_CHANNELS.keys())
     surface_vars = list(ERA5_SFC_CHANNELS.keys())
+    other_vars = list(ERA5_ADD_CHANNELS.keys())
 
     # pressure_level
     duration = slice(str(start_date), str(end_date))
@@ -74,15 +101,19 @@ def get_era5_dataset(dir, grid, start_date, end_date):
     era5_sfc['tp'] = era5_sfc['tp'] * 24 * 1000
     era5_sfc['tp'].attrs['units'] = 'mm/day' # Convert unit
 
+    # other_variables 
+    era5_add = read_add_vars(dir, "day", other_vars, start_date, end_date)
+
     # orography
     era5_topo = xr.open_mfdataset(dir + "/ERA5_oro_r1440x721.nc")[['oro']]
     era5_topo = era5_topo.expand_dims(time=era5_sfc.time)
     era5_topo = era5_topo.reindex(time=era5_sfc.time)
 
     # Merge prs, sfc, topo and rename variables.
-    era5 = xr.merge([era5_prs, era5_sfc, era5_topo]).rename({
+    era5 = xr.merge([era5_prs, era5_sfc, era5_add, era5_topo]).rename({
         **ERA5_PRS_CHANNELS,
         **ERA5_SFC_CHANNELS,
+        **ERA5_ADD_CHANNELS,
         **ERA5_ORO_CHANNEL
     })
 
@@ -101,7 +132,8 @@ def get_era5_pressure(era5_channel):
     era5_pressure_values = np.array(
         [np.nan] +  # First surface channel ("precipitation")
         list(np.repeat(PRESSURE_LEVELS, len(ERA5_PRS_CHANNELS))) +  # PRS_CHANNELS repeated for each pressure level
-        [np.nan] * len(ERA5_SFC_CHANNELS)  # Remaining surface channels + Orography channel
+        [np.nan] * len(ERA5_SFC_CHANNELS) +  # Remaining surface channels + Orography channel
+        [np.nan] * len(ERA5_ADD_CHANNELS)    # Add variables channel
     )
     era5_pressure = xr.DataArray(
         da.from_array(era5_pressure_values, chunks=(len(era5_pressure_values))),
@@ -117,6 +149,7 @@ def get_era5_variable(era5_channel):
         list(ERA5_SFC_CHANNELS.values())[:1] +  # First surface channel ("precipitation")
         list(ERA5_PRS_CHANNELS.values()) * len(PRESSURE_LEVELS) +  # PRS_CHANNELS repeated for each pressure level
         list(ERA5_SFC_CHANNELS.values())[1:] +  # Remaining surface channels
+        list(ERA5_ADD_CHANNELS.values()) +      # Other Variables channels 
         list(ERA5_ORO_CHANNEL.values())         # Orography channel
     )
     era5_variable = xr.DataArray(
