@@ -131,8 +131,6 @@ def verify_dataset(dataset) -> tuple[bool, str]:
     missing_dims = [dim for dim in required_dims if dim not in dataset.dims]
     if missing_dims:
         return False, f"Missing required dimensions: {', '.join(missing_dims)}."
-    if dataset.dims["south_north"] != dataset.dims["west_east"]:
-        return False, "Dimensions 'south_north' and 'west_east' are not equal."
     if dataset.dims["south_north"] % 16 != 0:
         return False, "Dimensions 'south_north' and 'west_east' are not multiples of 16."
 

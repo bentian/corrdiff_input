@@ -55,9 +55,9 @@ from tread import generate_tread_output
 from era5 import generate_era5_output
 from util import is_local_testing, verify_dataset, dump_regrid_netcdf
 
-DEBUG = False  # Set to True to enable debugging
+DEBUG = True  # Set to True to enable debugging
 CORRDIFF_GRID_COORD_KEYS = ["XLAT", "XLONG"]
-REF_GRID_NC = "./ref_grid/wrf_208x208_grid_coords.nc"
+REF_GRID_NC = "./ref_grid/wrf_288x224_grid_coords.nc"
 
 ##
 # Functions

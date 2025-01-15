@@ -1,106 +1,115 @@
 """
-Grid Extraction and NetCDF Output Generation.
+Regrid Dataset and Save to NetCDF.
 
-This script extracts a grid subset centered around a specified latitude and longitude
-from an input NetCDF file. The extracted grid data is then saved into a new NetCDF file
-with appropriate metadata.
+This script takes an input NetCDF file containing geospatial grid data, extrapolates
+the data to a larger grid size using bilinear interpolation, and saves the regridded
+data to a new NetCDF file. It leverages the `xESMF` library for regridding and supports
+nearest-neighbor extrapolation for points outside the source grid.
 
 Features:
-- Extracts a grid of specified dimensions (`ny` x `nx`) centered on given coordinates.
-- Handles bounds to ensure slicing remains within the data range.
-- Copies relevant variables (`XLAT`, `XLONG`, `TER`, `LANDMASK`) from the input file.
-- Saves the extracted grid into a new NetCDF file with metadata and attributes.
+- Generates a larger grid with specified dimensions (`ny` x `nx`).
+- Uses bilinear interpolation for regridding and nearest-neighbor extrapolation.
+- Processes geospatial variables (`TER`, `LANDMASK`) to align with the new grid.
+- Saves the regridded dataset, including metadata, into a NetCDF file.
 
 Parameters:
-- clon, clat (float): Center longitude and latitude of the grid.
-- ny, nx (int): Dimensions of the grid to extract.
-- INPUT_FILE (str): Path to the input NetCDF file containing the source data.
-- OUTPUT_FILE (str): Path where the extracted grid will be saved.
+- `clon`, `clat` (float): Center longitude and latitude of the grid.
+- `ny`, `nx` (int): Dimensions of the new larger grid to be generated.
+- `INPUT_FILE` (str): Path to the input NetCDF file containing source data.
+- `OUTPUT_FILE` (str): Path to the output NetCDF file with the regridded data.
 
 Workflow:
-1. Open the input NetCDF file and read the required variables.
-2. Locate the center point based on the specified coordinates.
-3. Compute slicing indices for the desired grid dimensions.
-4. Extract the grid and relevant variables.
-5. Create a new NetCDF file and save the extracted data with metadata.
+1. Open the input NetCDF file and extract geospatial variables.
+2. Define the bounds and generate a new larger grid.
+3. Perform regridding using `xESMF`, including extrapolation with the "nearest_s2d" method.
+4. Save the regridded data, along with the new grid, to a NetCDF file.
 
 Dependencies:
-- `os`: For file handling.
-- `numpy`: For numerical operations.
-- `netCDF4`: For working with NetCDF files.
+- `os`: For file handling and path operations.
+- `numpy`: For numerical operations and grid generation.
+- `xarray`: For handling labeled multidimensional arrays.
+- `xesmf`: For regridding and extrapolation of geospatial data.
 
 Example Usage:
-    1. Update the parameters `clon`, `clat`, `ny`, `nx`, and `INPUT_FILE`.
-    2. Run the script to generate an output file containing the grid.
+    1. Update the `clon`, `clat`, `ny`, `nx`, and `INPUT_FILE` parameters.
+    2. Run the script to generate a regridded output file.
+    3. The output will be saved in the specified `OUTPUT_FILE`.
 
 Notes:
-- Ensure the input file (`INPUT_FILE`) exists and contains
-  the required variables: `XLAT`, `XLONG`, `TER`, and `LANDMASK`.
-- The script automatically removes any existing output file at the specified `OUTPUT_FILE` path.
+- Ensure that the input file (`INPUT_FILE`) exists and contains the required variables:
+  `XLAT`, `XLONG`, `TER`, and `LANDMASK`.
+- The script overwrites any existing output file at the specified `OUTPUT_FILE` path.
 """
 import os
 import numpy as np
-from netCDF4 import Dataset
+import xarray as xr
+import xesmf as xe
 
 # === Parameters ===
 clon, clat = 120.9465, 23.6745  # Center latitude and longitude
-ny, nx = 208, 208               # Grid dimensions
+ny, nx = 288, 224               # New larger grid dimensions
 
 # === Input file ===
 INPUT_FILE = './TReAD_wrf_d02_info.nc'
-nc_in = Dataset(INPUT_FILE, mode='r')
+nc_in = xr.open_dataset(INPUT_FILE)
 
-lat = nc_in.variables['XLAT'][:]
-lon = nc_in.variables['XLONG'][:]
-ter = nc_in.variables['TER'][:]
-lmask = nc_in.variables['LANDMASK'][:]
+# Extract variables from the input dataset
+lat = nc_in["XLAT"]
+lon = nc_in["XLONG"]
+ter = nc_in["TER"]
+lmask = nc_in["LANDMASK"]
 
-# Find index of the center point
-idy = np.abs(lat[:, 0] - clat).argmin()
-idx = np.abs(lon[0, :] - clon).argmin()
+# === Generate New Grid ===
+lat_min, lat_max = lat.min().item(), lat.max().item()
+lon_min, lon_max = lon.min().item(), lon.max().item()
 
-# Calculate the slicing indices
-slat_idx = max(0, idy - ny // 2)
-elat_idx = min(lat.shape[0], slat_idx + ny)
-slon_idx = max(0, idx - nx // 2)
-elon_idx = min(lat.shape[1], slon_idx + nx)
+new_lat = np.linspace(lat_min, lat_max, ny)
+new_lon = np.linspace(lon_min, lon_max, nx)
+new_lat_grid, new_lon_grid = np.meshgrid(new_lat, new_lon, indexing='ij')
 
-# Extract the grid
-lat_grid = lat[slat_idx:elat_idx, slon_idx:elon_idx].astype("float32")
-lon_grid = lon[slat_idx:elat_idx, slon_idx:elon_idx].astype("float32")
-ter_grid = ter[slat_idx:elat_idx, slon_idx:elon_idx].astype("float32")
-lmask_grid = lmask[slat_idx:elat_idx, slon_idx:elon_idx].astype("float32")
+# Create new grid as xarray.Dataset
+new_grid = xr.Dataset(
+    {
+        "lat": (["south_north", "west_east"], new_lat_grid),
+        "lon": (["south_north", "west_east"], new_lon_grid),
+    }
+)
+
+# === Regrid Using xESMF ===
+regridder = xe.Regridder(
+    nc_in,
+    new_grid,
+    method="bilinear",  # Bilinear interpolation
+    extrap_method="nearest_s2d",  # Nearest neighbor extrapolation
+    periodic=False,
+)
+
+# Regrid each variable
+ter_regridded = regridder(nc_in["TER"])
+lmask_regridded = regridder(nc_in["LANDMASK"])
 
 # === Output file ===
 OUTPUT_FILE = f"./wrf_{ny}x{nx}_grid_coords.nc"
 if os.path.exists(OUTPUT_FILE):
     os.remove(OUTPUT_FILE)
 
-with Dataset(OUTPUT_FILE, mode="w", format="NETCDF4") as ncfile:
-    # Create dimensions
-    ncfile.createDimension("south_north", lat_grid.shape[0])
-    ncfile.createDimension("west_east", lon_grid.shape[1])
+with xr.Dataset() as nc_out:
+    # Assign regridded variables
+    nc_out["XLAT"] = (["south_north", "west_east"], new_lat_grid)
+    nc_out["XLONG"] = (["south_north", "west_east"], new_lon_grid)
+    nc_out["TER"] = ter_regridded
+    nc_out["LANDMASK"] = lmask_regridded
 
-    # Create variables
-    nlat   = ncfile.createVariable("XLAT", "f4", ("south_north", "west_east"))
-    nlon   = ncfile.createVariable("XLONG", "f4", ("south_north", "west_east"))
-    nter   = ncfile.createVariable("TER", "f4", ("south_north", "west_east"))
-    nlmask = ncfile.createVariable("LANDMASK", "f4", ("south_north", "west_east"))
+    # Add metadata
+    nc_out["XLAT"].attrs["units"] = "degrees_north"
+    nc_out["XLONG"].attrs["units"] = "degrees_east"
+    nc_out["TER"].attrs["units"] = "meters"
+    nc_out["LANDMASK"].attrs["units"] = "land mask"
+    nc_out.attrs["coordinates"] = "XLAT XLONG"
+    nc_out.attrs["description"] = f"New CorrDiff Training REF grid {ny}x{nx}"
+    print(nc_out)
 
-    # Assign values
-    nlat[:,:]   = lat_grid
-    nlon[:,:]   = lon_grid
-    nter[:,:]   = ter[slat_idx:elat_idx, slon_idx:elon_idx]
-    nlmask[:,:] = lmask[slat_idx:elat_idx, slon_idx:elon_idx]
-
-    # Add coordinate metadata
-    ncfile.setncattr("coordinates", "XLAT XLONG")
-
-    # Add attributes
-    nlat.units = "degrees_north"
-    nlon.units = "degrees_east"
-    nter.units = "meters"
-    nlmask.units = "land mask"
-    ncfile.setncattr("description", f"New CorrDiff Training REF grid {ny}x{nx}")
+    # Save to NetCDF
+    nc_out.to_netcdf(OUTPUT_FILE)
 
 print(f"Output written to => {OUTPUT_FILE}")
