@@ -73,24 +73,33 @@ ERA5_CHANNELS = [
     {'name': 't', 'pressure': 500, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
+    {'name': 'r', 'pressure': 500, 'variable': 'relative_humidity'},
     # 700
     {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
     {'name': 't', 'pressure': 700, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
+    {'name': 'r', 'pressure': 700, 'variable': 'relative_humidity'},
     # 850
     {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
     {'name': 't', 'pressure': 850, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 850, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 850, 'variable': 'northward_wind'},
+    {'name': 'r', 'pressure': 850, 'variable': 'relative_humidity'},
     {'name': 'w', 'pressure': 850, 'variable': 'vertical_velocity'}, # W for 850 only
     # 925
     {'name': 'z', 'pressure': 925, 'variable': 'geopotential_height'},
     {'name': 't', 'pressure': 925, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
+    {'name': 'r', 'pressure': 925, 'variable': 'relative_humidity'},
     # 1000
-    {'name': 'q', 'pressure': 1000, 'variable': 'specific_humidity'},
+    {'name': 'z', 'pressure': 1000, 'variable': 'geopotential_height'},
+    {'name': 't', 'pressure': 1000, 'variable': 'temperature'},
+    {'name': 'u', 'pressure': 1000, 'variable': 'eastward_wind'},
+    {'name': 'v', 'pressure': 1000, 'variable': 'northward_wind'},
+    {'name': 'r', 'pressure': 1000, 'variable': 'relative_humidity'},
+    {'name': 'q', 'pressure': 1000, 'variable': 'specific_humidity'}, # Q for 1000 only
     # Remaining surface channels
     {'name': 't2m', 'variable': 'temperature_2m'},
     {'name': 'u10', 'variable': 'eastward_wind_10m'},
