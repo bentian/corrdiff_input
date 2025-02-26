@@ -309,8 +309,9 @@ def get_era5_dataset(
     # Based on REF grid, regrid TReAD data over spatial dimensions for all timestamps.
     era5_out = regrid_dataset(era5_crop, grid)
 
-    # Append orography data from REF grid
-    era5_out["terrain_height"] = get_orography_data(terrain, era5_sfc.time)
+    # Append orography data from REF grid if orography is in the channels.
+    if any(channel.get('variable') == 'terrain_height' for channel in ERA5_CHANNELS):
+        era5_out["terrain_height"] = get_orography_data(terrain, era5_sfc.time)
 
     return era5_crop, era5_out
 
