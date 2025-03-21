@@ -68,6 +68,7 @@ TREAD_CHANNELS_ORIGINAL = {
     "UV10": "windspeed_10m",
     "RH2": "relative_humidity_2m",
     "PSFC": "sea_level_pressure",
+    "Q2": "specific_humidity_2m",
 }
 TREAD_CHANNELS = {
     # Baseline
@@ -76,6 +77,7 @@ TREAD_CHANNELS = {
     # C1.x
     "T2MAX": "maximum_temperature_2m",
     "T2MIN": "minimum_temperature_2m",
+    "MSWDNB": "mean_solar_flux_down_sfc",
 }
 
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
@@ -109,7 +111,7 @@ def get_tread_dataset(file: str, grid: xr.Dataset,
         tuple: A tuple containing the original and regridded TReAD datasets.
     """
     channel_keys_original = list(TREAD_CHANNELS_ORIGINAL.keys())
-    surface_vars = ['RAINC', 'RAINNC'] + channel_keys_original
+    surface_vars = ['RAINC', 'RAINNC', 'ACSWDNB'] + channel_keys_original
 
     start_datetime = pd.to_datetime(str(start_date), format='%Y%m%d')
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
@@ -126,11 +128,13 @@ def get_tread_dataset(file: str, grid: xr.Dataset,
     # Calculate daily mean for original channels.
     tread = tread_surface[channel_keys_original].resample(time='1D').mean()
     # Compute additional channels:
-    # - Sum TP = RAINC+RAINNC & accumulate daily, and
-    # - Find T2's max and min.
+    # - Sum TP = RAINC+RAINNC & accumulate daily,
+    # - Find T2's max and min,
+    # - Compute mean downward solar flux surface.
     tread['TP'] = (tread_surface['RAINC'] + tread_surface['RAINNC']).resample(time='1D').sum()
-    tread['T2MAX'] = (tread_surface['T2']).resample(time='1D').max()
-    tread['T2MIN'] = (tread_surface['T2']).resample(time='1D').min()
+    tread['T2MAX'] = tread_surface['T2'].resample(time='1D').max()
+    tread['T2MIN'] = tread_surface['T2'].resample(time='1D').min()
+    tread['MSWDNB'] = tread_surface['ACSWDNB'].resample(time='1D').sum() / 86400.0
 
     tread = tread[list(TREAD_CHANNELS.keys())].rename(TREAD_CHANNELS)
 
