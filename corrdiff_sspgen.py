@@ -53,9 +53,9 @@ import xarray as xr
 import numpy as np
 from dask.diagnostics import ProgressBar
 
-from taiesm3p5 import generate_taiesm3p5_output
-from taiesm100 import generate_taiesm100_output
-from util import is_local_testing, verify_dataset, dump_regrid_netcdf
+from taiesm3p5 import generate_output as generate_taiesm3p5_output
+# from taiesm100 import generate_output as generate_taiesm100_output
+from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
 REF_GRID_NC = "./ref_grid/wrf_304x304_grid_coords.nc"
@@ -86,14 +86,11 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
 
     return grid, grid_coords
 
-def generate_output_dataset(taiesm3p5_dir: str, taiesm100_dir: str,
-                            start_date: str, end_date: str) -> xr.Dataset:
+def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
     """
     Generates a consolidated output dataset by processing TaiESM 3.5km & 100km data fields.
 
     Parameters:
-        taiesm3p5_dir (str): Path to the directory containing TaiESM 3.5km datasets.
-        taiesm100_dir (str): Path to the directory containing TaiESM 100km datasets.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
 
@@ -104,8 +101,9 @@ def generate_output_dataset(taiesm3p5_dir: str, taiesm100_dir: str,
     grid, grid_coords = get_ref_grid()
 
     # Generate TaiESM 3.5km & 100km output fields
-    taiesm3p5_outputs = generate_taiesm3p5_output(taiesm3p5_dir, grid, start_date, end_date)
-    taiesm100_outputs = generate_taiesm100_output(taiesm100_dir, grid, start_date, end_date)
+    taiesm3p5_outputs = generate_taiesm3p5_output(grid, start_date, end_date)
+    return
+    taiesm100_outputs = generate_taiesm100_output(grid, start_date, end_date)
 
     # Group outputs into dictionaries
     ground_truth_data = {
@@ -180,26 +178,6 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
     print(f"Data successfully saved to [{out_path}]")
 
-def get_data_dir() -> Tuple[str, str]:
-    """
-    Determines the base directories for TaiESM 3.5km & 100km datasets based on the execution environment.
-
-    Returns:
-        tuple:
-            - str: The path to the TaiESM 3.5km data directory.
-            - str: The path to the TaiESM 100km data directory.
-
-    Notes:
-        - In local testing environments (determined by `is_local_testing()`), the paths are set to
-          `./data/taiesm3p5` and `./data/taiesm100`.
-        - In BIG server environments, the paths point to remote directories:
-          `` for TaiESM 3.5km
-          `` for TaiESM 100km.
-    """
-    if is_local_testing():
-        return "./data/taiesm3p5", "./data/taiesm100"
-    return "", "" # TODO
-
 def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
     """
     Generates and verifies a consolidated dataset for TaiESM 3.5km & 100km  data,
@@ -212,10 +190,9 @@ def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
     Returns:
         None
     """
-    taiesm3p5_dir, taiesm100_dir = get_data_dir()
 
     # Generate the output dataset.
-    out = generate_output_dataset(taiesm3p5_dir, taiesm100_dir, start_date, end_date)
+    out = generate_output_dataset(start_date, end_date)
     print(f"\nZARR dataset =>\n {out}")
 
     # Verify the output dataset.
@@ -225,7 +202,7 @@ def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
         return
 
     # Write the output dataset to ZARR.
-    write_to_zarr(f"corrdiff_dataset_{start_date}_{end_date}.zarr", out)
+    write_to_zarr(f"ssp_dataset_{start_date}_{end_date}.zarr", out)
 
 def main():
     """
