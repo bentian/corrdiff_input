@@ -18,7 +18,6 @@ Features:
 Functions:
 - `generate_output_dataset`: Combines processed TaiESM 100km & 3.5km data into a consolidated dataset.
 - `write_to_zarr`: Writes the consolidated dataset to Zarr format with compression.
-- `get_data_dir`: Determines the paths for TaiESM 3.5km & 100km datasets based on the environment.
 - `get_ref_grid`: Loads the reference grid dataset and extracts the required coordinates.
 - `generate_corrdiff_zarr`: Orchestrates the generation, verification, and saving of the dataset.
 - `main`: Parses command-line arguments and triggers the dataset generation process.
@@ -47,6 +46,7 @@ Notes:
 """
 import sys
 from typing import Tuple
+from enum import Enum
 
 import zarr
 import xarray as xr
@@ -60,6 +60,13 @@ from util import verify_dataset, dump_regrid_netcdf
 DEBUG = False  # Set to True to enable debugging
 REF_GRID_NC = "./ref_grid/wrf_304x304_grid_coords.nc"
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
+
+class SSP(str, Enum):
+    historical = "historical"
+    ssp126 = "ssp126"
+    ssp245 = "ssp245"
+    ssp370 = "ssp370"
+    ssp585 = "ssp585"
 
 def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
     """
@@ -101,7 +108,7 @@ def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
     grid, grid_coords = get_ref_grid()
 
     # Generate TaiESM 3.5km & 100km output fields
-    taiesm3p5_outputs = generate_taiesm3p5_output(grid, start_date, end_date)
+    taiesm3p5_outputs = generate_taiesm3p5_output(grid, start_date, end_date, SSP.historical)
     return
     taiesm100_outputs = generate_taiesm100_output(grid, start_date, end_date)
 

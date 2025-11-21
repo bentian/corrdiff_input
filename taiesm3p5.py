@@ -68,24 +68,30 @@ TAIESM_3P5_CHANNELS = {
     "V10MEAN": "northward_wind_10m",
 }
 
-def get_data_dir() -> str:
+def get_data_dir(ssp_suffix: str) -> str:
     """
-    Determine the base directory for the TaiESM 3.5 km dataset depending on the
-    current execution environment.
+    Return the base directory for the TaiESM 3.5 km dataset based on the
+    execution environment.
 
-    Returns:
-        str: Absolute or relative path to the TaiESM 3.5 km data directory.
+    Parameters
+    ----------
+    ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory on BIG server.
 
-    Notes:
-        - When running in a local development environment (as detected by
-          `is_local_testing()`), the directory is set to:
-            ./data/taiesm3p5
-        - When running on the BIG server, the directory is set to the corresponding
-          remote TaiESM 3.5 km dataset path.
-        - This function centralizes environment-dependent path handling so the rest
-          of the codebase can remain environment-agnostic.
+    Returns
+    -------
+    str
+        Path to the TaiESM 3.5 km data directory. This is:
+        - `./data/taiesm3p5` when running locally (as detected by is_local_testing())
+        - `/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_<suffix>` when
+          running on the BIG server.
+
+    Notes
+    -----
+    This helper centralizes environment-aware path logic so other code does not
+    need to handle local vs. remote directory differences.
     """
-    return "./data/taiesm3p5" if is_local_testing() else "" # TODO
+    return "./data/taiesm3p5" if is_local_testing() else \
+            f"/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_{ssp_suffix}"
 
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     """
@@ -103,7 +109,8 @@ def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     folder_path = Path(folder)
     return [folder_path / f"wrfday_d01_{yyyymm}.nc" for yyyymm in date_range]
 
-def get_dataset(grid: xr.Dataset, start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
+def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
+                ssp_suffix: str) -> Tuple[xr.Dataset, xr.Dataset]:
     """
     Retrieve and process TaiESM 3.5km dataset within the specified date range.
 
@@ -111,6 +118,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str) -> Tuple[xr.Da
         grid (xarray.Dataset): The reference grid for regridding.
         start_date (str): The start date in 'YYYYMMDD' format.
         end_date (str): The end date in 'YYYYMMDD' format.
+        ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory.
 
     Returns:
         tuple: A tuple containing the original and regridded TaiESM 3.5km datasets.
@@ -120,7 +128,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str) -> Tuple[xr.Da
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
 
     # Read surface level data.
-    file_paths = get_file_paths(get_data_dir(), start_date, end_date)
+    file_paths = get_file_paths(get_data_dir(ssp_suffix), start_date, end_date)
     surface_ds = xr.open_mfdataset(
         file_paths,
         preprocess=lambda ds: (
@@ -330,38 +338,49 @@ def get_cwb_valid(output_ds: xr.Dataset, cwb: xr.DataArray) -> xr.DataArray:
 def generate_output(
     grid: xr.Dataset,
     start_date: str,
-    end_date: str
+    end_date: str,
+    ssp_suffix: str = ''
 ) -> Tuple[
-    xr.DataArray,  # TaiESM 3.5km dataarray
-    xr.DataArray,  # TaiESM 3.5km variable
-    xr.DataArray,  # TaiESM 3.5km center
-    xr.DataArray,  # TaiESM 3.5km scale
-    xr.DataArray,  # TaiESM 3.5km valid
-    xr.Dataset,    # TaiESM 3.5km pre-regrid dataset
-    xr.Dataset     # TaiESM 3.5km post-regrid dataset
+    xr.DataArray,  # cwb
+    xr.DataArray,  # cwb_variable
+    xr.DataArray,  # cwb_center
+    xr.DataArray,  # cwb_scale
+    xr.DataArray,  # cwb_valid
+    xr.Dataset,    # pre_regrid
+    xr.Dataset     # post_regrid
 ]:
     """
-    Generate processed TaiESM 3.5km output datasets and related CWB DataArrays
-    for a specified date range.
+    Generate processed TaiESM 3.5 km outputs and corresponding CWB diagnostic
+    DataArrays for a specified date range.
 
-    Parameters:
-        grid (xarray.Dataset): The reference grid for regridding.
-        start_date (str): The start date in 'YYYYMMDD' format.
-        end_date (str): The end date in 'YYYYMMDD' format.
+    Parameters
+    ----------
+    grid (xr.Dataset): Reference grid defining the target spatial domain for regridding.
+    start_date (str): Start date in 'YYYYMMDD' format (inclusive).
+    end_date (str): End date in 'YYYYMMDD' format (inclusive).
+    ssp_suffix (str, optional): Scenario suffix used to select the TaiESM dataset directory
+                                (e.g., 'historical', 'ssp126', 'ssp245').
 
-    Returns:
-        tuple: A tuple containing the following elements:
-            - cwb (xarray.DataArray): The processed CWB DataArray.
-            - cwb_variable (xarray.DataArray): DataArray of TaiESM 3.5km variables.
-            - cwb_center (xarray.DataArray): DataArray of mean values for TaiESM 3.5km variables.
-            - cwb_scale (xarray.DataArray): DataArray of standard deviations for
-                                            TaiESM 3.5km variables.
-            - cwb_valid (xarray.DataArray): DataArray indicating the validity of each time step.
-            - pre_regrid (xarray.Dataset): The original TaiESM 3.5km dataset before regridding.
-            - output_ds (xarray.Dataset): The regridded TaiESM 3.5km dataset.
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - **cwb** (xr.DataArray): Final processed CWB tensor used by CorrDiff.
+        - **cwb_variable** (xr.DataArray): Names of variables included in the CWB tensor.
+        - **cwb_center** (xr.DataArray): Per-variable mean values (centering).
+        - **cwb_scale** (xr.DataArray): Per-variable standard deviations (scaling).
+        - **cwb_valid** (xr.DataArray): Boolean mask indicating valid time steps.
+        - **pre_regrid** (xr.Dataset): Native TaiESM 3.5 km dataset before spatial regridding.
+        - **post_regrid** (xr.Dataset): TaiESM 3.5 km dataset regridded to the target domain.
+
+    Notes
+    -----
+    This function encapsulates the full processing pipeline:
+    loading TaiESM data, centering/scaling, computing validity flags,
+    and regridding to the specified reference grid.
     """
     # Extract TaiESM 3.5km data from file.
-    output_ds, regridded_ds = get_dataset(grid, start_date, end_date)
+    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_suffix)
     print(f"\nTaiESM_3.5km dataset =>\n {regridded_ds}")
 
     # Prepare for generation
