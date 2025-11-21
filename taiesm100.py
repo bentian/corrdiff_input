@@ -1,32 +1,31 @@
 """
-ERA5 Dataset Processing Module.
+TaiESM 100km Dataset Processing Module.
 
-This module provides utilities for processing ERA5 datasets, including retrieving,
+This module provides utilities for processing TaiESM 100km datasets, including retrieving,
 preprocessing, regridding, and aggregating variables across multiple dimensions.
 It supports generating consolidated outputs, such as means, standard deviations,
-and validity masks for ERA5 data channels.
+and validity masks for TaiESM 100km data channels.
 
 Features:
-- Retrieve ERA5 pressure-level and surface data for specific date ranges.
-- Regrid ERA5 datasets to align with a reference grid.
-- Generate consolidated ERA5 DataArrays with stacked variables.
+- Retrieve TaiESM 100km pressure-level and surface data for specific date ranges.
+- Regrid TaiESM 100km datasets to align with a reference grid.
+- Generate consolidated TaiESM 100km DataArrays with stacked variables.
 - Calculate aggregated metrics (e.g., mean, standard deviation) over time and spatial dimensions.
-- Support for generating validity masks for ERA5 variables.
+- Support for generating validity masks for TaiESM 100km variables.
 
 Functions:
-- get_prs_paths: Generate file paths for ERA5 pressure-level data.
-- get_sfc_paths: Generate file paths for ERA5 surface data.
-- get_pressure_level_data: Retrieve and preprocess ERA5 pressure-level data.
-- get_surface_data: Retrieve and preprocess ERA5 surface data.
-- get_era5_orography: Retrieve and preprocess ERA5 orography data.
-- get_tread_data: Expand and align reference grid data (from TReAD) for ERA5 processing.
-- get_era5_dataset: Retrieve and preprocess ERA5 datasets, including regridding and merging.
-- get_era5: Create a consolidated DataArray of ERA5 variables across channels.
-- get_era5_center: Compute mean values for ERA5 variables over time and spatial dimensions.
-- get_era5_scale: Compute standard deviation values for ERA5 variables over time and
+- get_prs_paths: Generate file paths for TaiESM 100km pressure-level data.
+- get_sfc_paths: Generate file paths for TaiESM 100km surface data.
+- get_pressure_level_data: Retrieve and preprocess TaiESM 100km pressure-level data.
+- get_surface_data: Retrieve and preprocess TaiESM 100km surface data.
+- get_era5_dataset: Retrieve and preprocess TaiESM 100km datasets,
+                    including regridding and merging.
+- get_era5: Create a consolidated DataArray of TaiESM 100km variables across channels.
+- get_era5_center: Compute mean values for TaiESM 100km variables over time and spatial dimensions.
+- get_era5_scale: Compute standard deviation values for TaiESM 100km variables over time and
                   spatial dimensions.
-- get_era5_valid: Generate validity masks for ERA5 variables over time.
-- generate_era5_output: Produce consolidated ERA5 outputs, including intermediate and
+- get_era5_valid: Generate validity masks for TaiESM 100km variables over time.
+- generate_era5_output: Produce consolidated TaiESM 100km outputs, including intermediate and
                         aggregated datasets.
 
 Dependencies:
@@ -41,24 +40,23 @@ Usage Example:
     from era5 import generate_era5_output
 
     # Define inputs
-    folder = "path/to/era5/data"
     ref_grid = xr.open_dataset("path/to/ref_grid.nc")
     start_date = "20220101"
     end_date = "20220131"
 
-    # Generate ERA5 outputs
+    # Generate TaiESM 100km outputs
     era5, era5_center, era5_scale, era5_valid, pre_regrid, regridded = \
-        generate_era5_output(folder, ref_grid, start_date, end_date)
+        generate_era5_output(ref_grid, start_date, end_date)
 
-    print("Processed ERA5 data:", regridded)
+    print("Processed TaiESM 100km data:", regridded)
 
 Notes:
 - Ensure that the input datasets follow the expected structure for variables and coordinates.
 - The module leverages Dask for efficient computation, especially for large datasets.
-- The ERA5_CHANNELS constant defines the supported ERA5 variables and their mappings.
+- The TAIESM_100_CHANNELS constant defines the supported TaiESM 100km variables and their mappings.
 """
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import dask.array as da
 import numpy as np
@@ -67,7 +65,7 @@ import xarray as xr
 
 from util import regrid_dataset, create_and_process_dataarray, is_local_testing
 
-ERA5_CHANNELS = [
+TAIESM_100_CHANNELS = [
     {'name': 'tp', 'variable': 'precipitation'},
     # 500
     {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
@@ -84,25 +82,41 @@ ERA5_CHANNELS = [
     {'name': 't', 'pressure': 850, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 850, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 850, 'variable': 'northward_wind'},
-    {'name': 'w', 'pressure': 850, 'variable': 'vertical_velocity'}, # W for 850 only
     # 925
     {'name': 'z', 'pressure': 925, 'variable': 'geopotential_height'},
     {'name': 't', 'pressure': 925, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
-    # 1000
-    {'name': 'q', 'pressure': 1000, 'variable': 'specific_humidity'},
     # Remaining surface channels
     {'name': 't2m', 'variable': 'temperature_2m'},
     {'name': 'u10', 'variable': 'eastward_wind_10m'},
     {'name': 'v10', 'variable': 'northward_wind_10m'},
-    {'name': 'msl', 'variable': 'mean_sea_level_pressure'},
-    # Orography channels
-    {'name': 'oro', 'variable': 'terrain_height'}, # to replace with TER
-    {'name': 'slope', 'variable': 'slope_angle'},
-    {'name': 'aspect', 'variable': 'slope_aspect'},
-    {'name': 'wtp', 'variable': 'weighted_precipitation'}, # tp * TER / oro
 ]
+
+def get_data_dir(ssp_suffix: str) -> str:
+    """
+    Return the base directory for the TaiESM 3.5 km dataset based on the
+    execution environment.
+
+    Parameters
+    ----------
+    ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory on BIG server.
+
+    Returns
+    -------
+    str
+        Path to the TaiESM 3.5 km data directory. This is:
+        - `./data/taiesm100` when running locally (as detected by is_local_testing())
+        - `/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_suffix}_daily/` when
+          running on the BIG server.
+
+    Notes
+    -----
+    This helper centralizes environment-aware path logic so other code does not
+    need to handle local vs. remote directory differences.
+    """
+    return "./data/taiesm3p5" if is_local_testing() else \
+            f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_suffix}_daily/"
 
 def get_prs_paths(
     folder: str,
@@ -112,7 +126,7 @@ def get_prs_paths(
     end_date: str
 ) -> List[Path]:
     """
-    Generate file paths for ERA5 pressure level data files within a specified date range.
+    Generate file paths for TaiESM 100km pressure level data files within a specified date range.
 
     Parameters:
         folder (str): The base directory containing the data files.
@@ -144,7 +158,7 @@ def get_sfc_paths(
     end_date: str
 ) -> List[Path]:
     """
-    Generate file paths for ERA5 surface data files within a specified date range.
+    Generate file paths for TaiESM 100km surface data files within a specified date range.
 
     Parameters:
         folder (str): The base directory containing the data files.
@@ -169,18 +183,18 @@ def get_sfc_paths(
 
 def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     """
-    Retrieve and process pressure level data from ERA5 files.
+    Retrieve and process pressure level data from TaiESM 100km files.
 
     Parameters:
-        folder (str): Base directory containing ERA5 pressure level data files.
+        folder (str): Base directory containing TaiESM 100km pressure level data files.
         duration (slice): Time slice for the desired data range.
 
     Returns:
         xarray.Dataset: Processed pressure level data.
     """
-    pressure_levels = sorted({ch['pressure'] for ch in ERA5_CHANNELS if 'pressure' in ch})
+    pressure_levels = sorted({ch['pressure'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch})
     pressure_level_vars = list(dict.fromkeys(
-        ch['name'] for ch in ERA5_CHANNELS if 'pressure' in ch
+        ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch
     ))
 
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
@@ -189,10 +203,10 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
 
 def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     """
-    Retrieve and process surface data from ERA5 files.
+    Retrieve and process surface data from TaiESM 100km files.
 
     Parameters:
-        folder (str): Base directory containing ERA5 surface data files.
+        folder (str): Base directory containing TaiESM 100km surface data files.
         surface_vars (list): List of variable names for surface data.
         duration (slice): Time slice for the desired data range.
 
@@ -200,8 +214,8 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
         xarray.Dataset: Processed surface data.
     """
     surface_vars = list(dict.fromkeys(
-        ch['name'] for ch in ERA5_CHANNELS
-        if 'pressure' not in ch and ch['name'] not in {'oro', 'slope', 'aspect', 'wtp'}
+        ch['name'] for ch in TAIESM_100_CHANNELS
+        if 'pressure' not in ch
     ))
 
     sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
@@ -211,179 +225,103 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
 
     return sfc_data
 
-def get_era5_orography(folder: str, time_coord: xr.DataArray) -> xr.Dataset:
+def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
+                ssp_suffix: str) -> Tuple[xr.Dataset, xr.Dataset]:
     """
-    Retrieve and process orography data from ERA5 files.
+    Retrieve, process, and regrid TaiESM 100km datasets for a specified date range, aligning with a
+    reference grid.
 
     Parameters:
-        folder (str): Base directory containing ERA5 orography data files.
-        time_coord (xarray.DataArray): Time coordinate to align with.
-
-    Returns:
-        xarray.Dataset: Processed orography data.
-    """
-    topo = xr.open_mfdataset(folder + '/ERA5_oro_r1440x721.nc')[['oro']]
-    topo = topo.expand_dims(time=time_coord)
-    return topo.reindex(time=time_coord)
-
-def get_tread_data(terrain: xr.DataArray, time_coord: xr.DataArray) -> da.Array:
-    """
-    Expand a 2D terrain-related variable along the time dimension to match ERA5 data.
-
-    This function duplicates a 2D spatial dataset (e.g., terrain height, slope, aspect)
-    along the `time` dimension, ensuring alignment with ERA5 data for integration.
-
-    Parameters:
-        terrain (xarray.DataArray): A 2D DataArray representing a terrain-related variable
-                                    (e.g., terrain height, slope, aspect).
-                                    Shape: [south_north, west_east].
-        time_coord (xarray.DataArray): A 1D DataArray containing time coordinates.
-                                       The terrain data will be expanded along this dimension.
-
-    Returns:
-        dask.array.Array: A Dask-backed DataArray with an added time dimension.
-                          Shape: [time, south_north, west_east].
-
-    Raises:
-        ValueError: If `terrain` is not a 2D array.
-
-    Notes:
-        - The function ensures that `terrain` remains unchanged spatially but is
-          repeated along the time dimension to match `time_coord`.
-        - This transformation is crucial for consistency when merging terrain variables
-          with ERA5 atmospheric data.
-        - The resulting DataArray is chunked (`time=1`) for efficient processing in Dask.
-    """
-    if terrain.ndim != 2:
-        raise ValueError(f"Expected `terrain` to be 2D (south_north, west_east),"
-                         f"but got shape {terrain.shape}")
-
-    return xr.DataArray(
-        terrain.expand_dims(time=time_coord.time).chunk({"time": 1}),
-        dims=["time", "south_north", "west_east"],
-        coords={"time": time_coord.time}
-    )
-
-def get_era5_dataset(
-    folder: str,
-    grid: xr.Dataset,
-    layers: Dict[str, xr.DataArray],
-    start_date: str,
-    end_date: str
-) -> Tuple[xr.Dataset, xr.Dataset]:
-    """
-    Retrieve, process, and regrid ERA5 datasets for a specified date range, aligning with a
-    reference grid and integrating additional topographic data.
-
-    Parameters:
-        folder (str): The base directory containing the ERA5 data files.
-        grid (xarray.Dataset): The reference grid dataset for spatial alignment and cropping.
-        layers (Dict[str, xarray.DataArray]): Dictionary of terrain-related layers from the
-                                              reference dataset (e.g., terrain height, slope,
-                                              aspect).
-        start_date (str): The start date of the desired data range (YYYY-MM-DD format).
-        end_date (str): The end date of the desired data range (YYYY-MM-DD format).
+        grid (xarray.Dataset): The reference grid for regridding.
+        start_date (str): The start date in 'YYYYMMDD' format.
+        end_date (str): The end date in 'YYYYMMDD' format.
+        ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory.
 
     Returns:
         Tuple[xarray.Dataset, xarray.Dataset]:
-            - The cropped ERA5 dataset limited to the spatial domain of the reference grid.
-            - The regridded ERA5 dataset aligned with the reference grid, including
+            - The cropped TaiESM 100km dataset limited to the spatial domain of the reference grid.
+            - The regridded TaiESM 100km dataset aligned with the reference grid, including
               additional topographic variables (terrain height, slope, and aspect).
 
     Notes:
         - The function follows a structured pipeline:
-            1. **Surface Data:** Retrieves ERA5 surface data (`get_surface_data`).
+            1. **Surface Data:** Retrieves TaiESM 100km surface data (`get_surface_data`).
             2. **Pressure Level Data:** Retrieves pressure-level data (`get_pressure_level_data`).
-            3. **Orography Data:** Extracts and processes ERA5 orography (`get_era5_orography`).
             4. **Cropping:** Limits the dataset to the geographic bounds of the reference grid.
-            5. **Regridding:** Interpolate to match ERA5 data to the reference grid resolution.
-            6. **TReAD Layer Integration:** Adds topographic data (terrain height, slope, aspect)
-               from the reference dataset, applying regridding to ensure compatibility.
+            5. **Regridding:** Interpolate to match TaiESM 100km data to the reference grid resolution.
 
         - The **final dataset** (`era5_out`) includes:
-            - ERA5 atmospheric and surface variables.
-            - Orography (`oro`), slope, and aspect, derived from the TReAD dataset.
-            - Weighted total precipitation (`wtp`), computed using terrain height adjustments.
+            - TaiESM 100km atmospheric and surface variables.
 
-        - The dataset is renamed to standard variable names based on `ERA5_CHANNELS`.
+        - The dataset is renamed to standard variable names based on `TAIESM_100_CHANNELS`.
     """
     duration = slice(str(start_date), str(end_date))
+    folder = get_data_dir(ssp_suffix)
 
-    # Process and merge surface, pressure levels, and orography data
-    era5_sfc = get_surface_data(folder, duration)
-    era5 = xr.merge([
-        era5_sfc,
-        get_pressure_level_data(folder, duration),
-        get_era5_orography(folder, era5_sfc.time)
+    # Process and merge surface and pressure levels data
+    lr_data = xr.merge([
+        get_surface_data(folder, duration),
+        get_pressure_level_data(folder, duration)
     ])
 
-    # Crop to Taiwan domain given ERA5 is global data.
+    # Crop to Taiwan domain given TaiESM 100km is global data.
     lat, lon = grid.XLAT, grid.XLONG
-    era5_crop = era5.sel(
+    lr_data_cropped = lr_data.sel(
         latitude=slice(lat.max().item(), lat.min().item()),
         longitude=slice(lon.min().item(), lon.max().item()))
 
-    # Based on REF grid, regrid TReAD data over spatial dimensions for all timestamps.
-    era5_out = regrid_dataset(era5_crop, grid)
+    # Based on REF grid, regrid data over spatial dimensions for all timestamps.
+    lr_out = regrid_dataset(lr_data_cropped, grid)
 
-    # Update era5_out with TReAD layers
-    tread_data = {key: get_tread_data(layer, era5_sfc.time) for key, layer in layers.items()}
-    era5_out.update({
-        "wtp": era5_out["tp"] * tread_data["ter"] / era5_out["oro"],
-        "oro": tread_data["ter"],
-        "slope": tread_data["slope"],
-        "aspect": tread_data["aspect"]
-    })
+    lr_out = lr_out.rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
 
-    era5_out = era5_out.rename({ ch['name']: ch['variable'] for ch in ERA5_CHANNELS })
+    return lr_data_cropped, lr_out
 
-    return era5_crop, era5_out
-
-def get_era5(era5_out: xr.Dataset) -> xr.DataArray:
+def get_era5(lr_out: xr.Dataset) -> xr.DataArray:
     """
-    Constructs a consolidated ERA5 DataArray by stacking specified variables across channels.
+    Constructs a consolidated TaiESM 100km DataArray by stacking specified variables across channels.
 
     Parameters:
-        era5_out (xarray.Dataset): The processed ERA5 dataset after regridding.
+        lr_out (xarray.Dataset): The processed TaiESM 100km dataset after regridding.
 
     Returns:
-        xarray.DataArray: A DataArray containing the stacked ERA5 variables across defined channels,
+        xarray.DataArray: A DataArray containing the stacked TaiESM 100km variables across defined channels,
                           with appropriate dimensions and coordinates.
     """
-    era5_channel = np.arange(len(ERA5_CHANNELS))
-    era5_variable = [ch.get('variable') for ch in ERA5_CHANNELS]
-    era5_pressure = [ch.get('pressure', np.nan) for ch in ERA5_CHANNELS]
+    lr_channel = np.arange(len(TAIESM_100_CHANNELS))
+    lr_variable = [ch.get('variable') for ch in TAIESM_100_CHANNELS]
+    lr_pressure = [ch.get('pressure', np.nan) for ch in TAIESM_100_CHANNELS]
 
     # Create channel coordinates
     channel_coords = {
-        "era5_variable": xr.Variable(["era5_channel"], era5_variable),
-        "era5_pressure": xr.Variable(["era5_channel"], era5_pressure),
+        "era5_variable": xr.Variable(["era5_channel"], lr_variable),
+        "era5_pressure": xr.Variable(["era5_channel"], lr_pressure),
     }
 
-    # Create ERA5 DataArray
+    # Create TaiESM 100km DataArray
     stack_era5 = da.stack(
         [
-            era5_out[ch['variable']].sel(level=ch['pressure']).data
-            if 'pressure' in ch else era5_out[ch['variable']].data
-            for ch in ERA5_CHANNELS
+            lr_out[ch['variable']].sel(level=ch['pressure']).data
+            if 'pressure' in ch else lr_out[ch['variable']].data
+            for ch in TAIESM_100_CHANNELS
         ],
         axis=1
     )
     era5_dims = ["time", "era5_channel", "south_north", "west_east"]
     era5_coords = {
-        "time": era5_out["time"],
-        "era5_channel": era5_channel,
-        "south_north": era5_out["south_north"],
-        "west_east": era5_out["west_east"],
-        "XLAT": era5_out["XLAT"],
-        "XLONG": era5_out["XLONG"],
+        "time": lr_out["time"],
+        "era5_channel": lr_channel,
+        "south_north": lr_out["south_north"],
+        "west_east": lr_out["west_east"],
+        "XLAT": lr_out["XLAT"],
+        "XLONG": lr_out["XLONG"],
         **channel_coords,
     }
     era5_chunk_sizes = {
         "time": 1,
-        "era5_channel": era5_channel.size,
-        "south_north": era5_out["south_north"].size,
-        "west_east": era5_out["west_east"].size,
+        "era5_channel": lr_channel.size,
+        "south_north": lr_out["south_north"].size,
+        "west_east": lr_out["west_east"].size,
     }
 
     return create_and_process_dataarray(
@@ -391,16 +329,16 @@ def get_era5(era5_out: xr.Dataset) -> xr.DataArray:
 
 def get_era5_center(era5: xr.DataArray) -> xr.DataArray:
     """
-    Computes the mean value for each ERA5 channel across time and spatial dimensions.
+    Computes the mean value for each TaiESM 100km channel across time and spatial dimensions.
 
     Parameters:
-        era5 (xarray.DataArray): The consolidated ERA5 DataArray with multiple channels.
+        era5 (xarray.DataArray): The consolidated TaiESM 100km DataArray with multiple channels.
 
     Returns:
         xarray.DataArray: A DataArray containing the mean values for each channel,
                           with 'era5_channel' as the dimension.
     """
-    era5_mean = da.stack(
+    channel_mean_values = da.stack(
         [
             era5.isel(era5_channel=channel).mean(dim=["time", "south_north", "west_east"]).data
             for channel in era5["era5_channel"].values
@@ -409,7 +347,7 @@ def get_era5_center(era5: xr.DataArray) -> xr.DataArray:
     )
 
     return xr.DataArray(
-        era5_mean,
+        channel_mean_values,
         dims=["era5_channel"],
         coords={
             "era5_pressure": era5["era5_pressure"],
@@ -420,16 +358,16 @@ def get_era5_center(era5: xr.DataArray) -> xr.DataArray:
 
 def get_era5_scale(era5: xr.DataArray) -> xr.DataArray:
     """
-    Computes the standard deviation for each ERA5 channel across time and spatial dimensions.
+    Computes the standard deviation for each TaiESM 100km channel across time and spatial dimensions.
 
     Parameters:
-        era5 (xarray.DataArray): The consolidated ERA5 DataArray with multiple channels.
+        era5 (xarray.DataArray): The consolidated TaiESM 100km DataArray with multiple channels.
 
     Returns:
         xarray.DataArray: A DataArray containing the standard deviation values for each channel,
                           with 'era5_channel' as the dimension.
     """
-    era5_std = da.stack(
+    channel_std_values = da.stack(
         [
             era5.isel(era5_channel=channel).std(dim=["time", "south_north", "west_east"]).data
             for channel in era5["era5_channel"].values
@@ -437,7 +375,7 @@ def get_era5_scale(era5: xr.DataArray) -> xr.DataArray:
         axis=0
     )
     return xr.DataArray(
-        era5_std,
+        channel_std_values,
         dims=["era5_channel"],
         coords={
             "era5_pressure": era5["era5_pressure"],
@@ -448,10 +386,10 @@ def get_era5_scale(era5: xr.DataArray) -> xr.DataArray:
 
 def get_era5_valid(era5: xr.DataArray) -> xr.DataArray:
     """
-    Generates a DataArray indicating the validity of each ERA5 channel over time.
+    Generates a DataArray indicating the validity of each TaiESM 100km channel over time.
 
     Parameters:
-        era5 (xarray.DataArray): The consolidated ERA5 DataArray with multiple channels.
+        era5 (xarray.DataArray): The consolidated TaiESM 100km DataArray with multiple channels.
 
     Returns:
         xarray.DataArray: A boolean DataArray with dimensions 'time' and 'era5_channel',
@@ -473,49 +411,48 @@ def get_era5_valid(era5: xr.DataArray) -> xr.DataArray:
         name="era5_valid"
     )
 
-def generate_era5_output(
-    folder: str,
+def generate_output(
     grid: xr.Dataset,
-    terrain: xr.DataArray,
     start_date: str,
-    end_date: str
+    end_date: str,
+    ssp_suffix: str = ''
 ) -> Tuple[
-    xr.DataArray,  # ERA5 dataarray
-    xr.DataArray,  # ERA5 variable
-    xr.DataArray,  # ERA5 center
-    xr.DataArray,  # ERA5 scale
-    xr.DataArray,  # ERA5 valid
-    xr.Dataset,    # ERA5 pre-regrid dataset
-    xr.Dataset     # ERA5 post-regrid dataset
+    xr.DataArray,  # TaiESM 100km dataarray
+    xr.DataArray,  # TaiESM 100km variable
+    xr.DataArray,  # TaiESM 100km center
+    xr.DataArray,  # TaiESM 100km scale
+    xr.DataArray,  # TaiESM 100km valid
+    xr.Dataset,    # TaiESM 100km pre-regrid dataset
+    xr.Dataset     # TaiESM 100km post-regrid dataset
 ]:
     """
-    Processes ERA5 data files to generate consolidated outputs, including the ERA5 DataArray,
+    Processes TaiESM 100km data files to generate consolidated outputs, including the TaiESM 100km DataArray,
     its mean (center), standard deviation (scale), validity mask, and intermediate datasets.
 
     Parameters:
-        folder (str): The base directory containing the ERA5 data files.
-        grid (xarray.Dataset): The reference grid dataset for regridding.
-        terrain (xarray.DataArray): Orography (terrain height) data for the reference grid.
-        start_date (str or datetime-like): The start date of the desired data range.
-        end_date (str or datetime-like): The end date of the desired data range.
+        grid (xr.Dataset): Reference grid defining the target spatial domain for regridding.
+        start_date (str): Start date in 'YYYYMMDD' format (inclusive).
+        end_date (str): End date in 'YYYYMMDD' format (inclusive).
+        ssp_suffix (str, optional): Scenario suffix used to select the TaiESM dataset directory
+                                    (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
         tuple:
-            - xarray.DataArray: The consolidated ERA5 DataArray with stacked variables.
-            - xarray.DataArray: The mean values for each ERA5 channel.
-            - xarray.DataArray: The standard deviation values for each ERA5 channel.
-            - xarray.DataArray: The validity mask for each ERA5 channel over time.
-            - xarray.Dataset: The ERA5 dataset before regridding.
-            - xarray.Dataset: The ERA5 dataset after regridding.
+            - xarray.DataArray: The consolidated TaiESM 100km DataArray with stacked variables.
+            - xarray.DataArray: The mean values for each TaiESM 100km channel.
+            - xarray.DataArray: The standard deviation values for each TaiESM 100km channel.
+            - xarray.DataArray: The validity mask for each TaiESM 100km channel over time.
+            - xarray.Dataset: The TaiESM 100km dataset before regridding.
+            - xarray.Dataset: The TaiESM 100km dataset after regridding.
     """
-    # Extract ERA5 data from file.
-    era5_pre_regrid, era5_out = get_era5_dataset(folder, grid, terrain, start_date, end_date)
-    print(f"\nERA5 dataset =>\n {era5_out}")
+    # Extract TaiESM 100km data from file.
+    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_suffix)
+    print(f"\n[{ssp_suffix}] TaiESM_100km dataset =>\n {regridded_ds}")
 
     # Generate output fields
-    era5 = get_era5(era5_out)
+    era5 = get_era5(regridded_ds)
     era5_center = get_era5_center(era5)
     era5_scale = get_era5_scale(era5)
     era5_valid = get_era5_valid(era5)
 
-    return era5, era5_center, era5_scale, era5_valid, era5_pre_regrid, era5_out
+    return era5, era5_center, era5_scale, era5_valid, output_ds, regridded_ds

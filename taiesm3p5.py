@@ -34,7 +34,6 @@ Usage Example:
     from taiesm3p5 import generate_output
 
     # Define inputs
-    file_path = "path/to/taiesm3p5/data"
     ref_grid = xr.open_dataset("path/to/ref_grid.nc")
     start_date = "20220101"
     end_date = "20220131"
@@ -58,7 +57,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing, regrid_dataset, create_and_process_dataarray
+from util import is_local_testing, create_and_process_dataarray
 
 TAIESM_3P5_CHANNELS = {
     # Baseline
@@ -381,7 +380,7 @@ def generate_output(
     """
     # Extract TaiESM 3.5km data from file.
     output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_suffix)
-    print(f"\nTaiESM_3.5km dataset =>\n {regridded_ds}")
+    print(f"\n[{ssp_suffix}] TaiESM_3.5km dataset  =>\n {regridded_ds}")
 
     # Prepare for generation
     cwb_channel = np.arange(len(TAIESM_3P5_CHANNELS))

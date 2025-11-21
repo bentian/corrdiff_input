@@ -60,7 +60,7 @@ from dask.diagnostics import ProgressBar
 from tread import generate_tread_output
 from era5 import generate_era5_output
 from taiesm3p5 import generate_output as generate_taiesm3p5_output
-# from taiesm100 import generate_output as generate_taiesm100_output
+from taiesm100 import generate_output as generate_taiesm100_output
 from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
@@ -72,7 +72,7 @@ MODE_CONFIG = {
         "hr_generator": lambda grid, layers, start, end, ssp_suffix:
             generate_taiesm3p5_output(grid, start, end, ssp_suffix),
         "lr_generator": lambda grid, layers, start, end, ssp_suffix:
-            None # TODO
+            generate_taiesm100_output(grid, start, end, ssp_suffix),
     },
     "CWA": {
         "ref_grid_nc": "./ref_grid/wrf_208x208_grid_coords.nc",
@@ -238,7 +238,7 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_suffix
         return
 
     # Write the output dataset to ZARR.
-    write_to_zarr(f"corrdiff_dataset_{start_date}_{end_date}.zarr", out)
+    write_to_zarr(f"corrdiff_{ssp_suffix}dataset_{start_date}_{end_date}.zarr", out)
 
 def validate_ssp_suffix(raw: str) -> str:
     """
