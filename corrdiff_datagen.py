@@ -1,12 +1,12 @@
 """
 CorrDiff Dataset Generation and Zarr Storage.
 
-This script processes TReAD and ERA5 datasets to generate a consolidated dataset,
+This script processes low-resolution (low-res) and high-resolution (high-res) datasets to generate a consolidated dataset,
 verify its integrity, and save it in Zarr format. It integrates multiple data processing
 modules and performs spatial regridding, variable aggregation, and data compression.
 
 Features:
-- Processes TReAD and ERA5 datasets for a specified date range.
+- Processes low-res and high-res datasets for a specified date range.
 - Regrids datasets to a reference grid.
 - Generates a consolidated dataset with key variables and metrics:
   - Center (mean)
@@ -16,10 +16,10 @@ Features:
 - Saves the dataset in compressed Zarr format.
 
 Functions:
-- `generate_output_dataset`: Combines processed TReAD and ERA5 data into a consolidated dataset.
+- `generate_output_dataset`: Combines processed low-res and high-res data into a consolidated dataset.
 - `write_to_zarr`: Writes the consolidated dataset to Zarr format with compression.
 - `get_ref_grid`: Loads the reference grid dataset and extracts the required coordinates
-   and terrain data.
+   & optionally terrain data.
 - `generate_corrdiff_zarr`: Orchestrates the generation, verification, and saving of the dataset.
 - `main`: Parses command-line arguments and triggers the dataset generation process.
 
@@ -30,8 +30,12 @@ Dependencies:
 - `numpy`: For numerical operations.
 - `dask.diagnostics.ProgressBar`: For monitoring progress during dataset writing.
 - Modules:
-  - `tread`: For TReAD dataset processing.
-  - `era5`: For ERA5 dataset processing.
+  - CWA
+    - `tread`: For TReAD dataset processing.
+    - `era5`: For ERA5 dataset processing.
+  - SSP
+    - `taiesmep5`: For TaiESM 3.5 km dataset processing.
+    - `taiesm100`: For TaiESM 100 km dataset processing.
   - `util`: For utility functions like dataset verification and regridding.
 
 Usage:
@@ -46,6 +50,7 @@ Notes:
 
 """
 import sys
+from enum import Enum
 from typing import Tuple
 
 import zarr
@@ -55,11 +60,41 @@ from dask.diagnostics import ProgressBar
 
 from tread import generate_tread_output
 from era5 import generate_era5_output
-from util import is_local_testing, verify_dataset, dump_regrid_netcdf
+from taiesm3p5 import generate_output as generate_taiesm3p5_output
+# from taiesm100 import generate_output as generate_taiesm100_output
+from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
-REF_GRID_NC = "./ref_grid/wrf_208x208_grid_coords.nc"
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
+CURRENT_MODE = "CWA"
+
+class SSP(str, Enum):
+    historical = "historical"
+    ssp126 = "ssp126"
+    ssp245 = "ssp245"
+    ssp370 = "ssp370"
+    ssp585 = "ssp585"
+
+MODE_CONFIG = {
+    "SSP": {
+        "ref_grid_nc": "./ref_grid/wrf_304x304_grid_coords.nc",
+        "load_layers": False,   # Whether to load terrain-related layers
+        "hr_generator": lambda grid, start, end: generate_taiesm3p5_output(
+            grid, start, end, SSP.historical
+        ),
+        "lr_generator": None,  # TODO: add TaiESM 100 km
+    },
+    "CWA": {
+        "ref_grid_nc": "./ref_grid/wrf_208x208_grid_coords.nc",
+        "load_layers": True,
+        "hr_generator": lambda grid, start, end: generate_tread_output(
+            grid, start, end
+        ),
+        "lr_generator": lambda grid, layers, start, end: generate_era5_output(
+            grid, layers, start, end
+        ),
+    },
+}
 
 def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
     """
@@ -86,47 +121,55 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
         - The terrain-related variables are returned as a dictionary with lowercase keys
           for consistency in downstream processing.
     """
-    ref = xr.open_dataset(REF_GRID_NC, engine='netcdf4')
+    cfg = MODE_CONFIG[CURRENT_MODE]
+
+    ref = xr.open_dataset(cfg["ref_grid_nc"], engine='netcdf4')
+
     grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
     grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
+    layers = (
+        {key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] if key in ref}
+        if cfg["load_layers"] else {}
+    )
 
-    return grid, grid_coords, {key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"]}
+    return grid, grid_coords, layers
 
 def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
     """
-    Generates a consolidated output dataset by processing TReAD and ERA5 data fields.
+    Generates a consolidated output dataset by processing low-res and high-res data fields.
 
     Parameters:
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
 
     Returns:
-        xr.Dataset: A dataset containing consolidated and processed TReAD and ERA5 data fields.
+        xr.Dataset: A dataset containing consolidated and processed low-res and high-res data fields.
     """
     # Get REF grid
     grid, grid_coords, layers = get_ref_grid()
+    cfg = MODE_CONFIG[CURRENT_MODE]
 
-    # Generate CWB (TReAD) and ERA5 output fields
-    tread_outputs = generate_tread_output(grid, start_date, end_date)
-    era5_outputs = generate_era5_output(grid, layers, start_date, end_date)
+    # Generate high-res and low-res output fields
+    hr_outputs = cfg["hr_generator"](grid, start_date, end_date)
+    lr_outputs = cfg["lr_generator"](grid, layers, start_date, end_date)
 
     # Group outputs into dictionaries
-    tread_data = {
-        "cwb": tread_outputs[0],
-        "cwb_variable": tread_outputs[1],
-        "cwb_center": tread_outputs[2],
-        "cwb_scale": tread_outputs[3],
-        "cwb_valid": tread_outputs[4],
-        "pre_regrid": tread_outputs[5],
-        "post_regrid": tread_outputs[6],
+    hr_data = {
+        "cwb": hr_outputs[0],
+        "cwb_variable": hr_outputs[1],
+        "cwb_center": hr_outputs[2],
+        "cwb_scale": hr_outputs[3],
+        "cwb_valid": hr_outputs[4],
+        "pre_regrid": hr_outputs[5],
+        "post_regrid": hr_outputs[6],
     }
-    era5_data = {
-        "era5": era5_outputs[0],
-        "era5_center": era5_outputs[1],
-        "era5_scale": era5_outputs[2],
-        "era5_valid": era5_outputs[3],
-        "pre_regrid": era5_outputs[4],
-        "post_regrid": era5_outputs[5],
+    lr_data = {
+        "era5": lr_outputs[0],
+        "era5_center": lr_outputs[1],
+        "era5_scale": lr_outputs[2],
+        "era5_valid": lr_outputs[3],
+        "pre_regrid": lr_outputs[4],
+        "post_regrid": lr_outputs[5],
     }
 
     # Create the output dataset
@@ -134,31 +177,31 @@ def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
         coords={
             **{key: grid_coords[key] for key in GRID_COORD_KEYS},
             "XTIME": np.datetime64("2025-02-08 16:00:00", "ns"),  # Placeholder for timestamp
-            "time": tread_data["cwb"].time,
-            "cwb_variable": tread_data["cwb_variable"],
-            "era5_scale": ("era5_channel", era5_data["era5_scale"].data),
+            "time": hr_data["cwb"].time,
+            "cwb_variable": hr_data["cwb_variable"],
+            "era5_scale": ("era5_channel", lr_data["era5_scale"].data),
         }
     )
 
     # Assign CWB and ERA5 data variables
     out = out.assign({
-        "cwb": tread_data["cwb"],
-        "cwb_center": tread_data["cwb_center"],
-        "cwb_scale": tread_data["cwb_scale"],
-        "cwb_valid": tread_data["cwb_valid"],
-        "era5": era5_data["era5"],
-        "era5_center": era5_data["era5_center"],
-        "era5_valid": era5_data["era5_valid"],
+        "cwb": hr_data["cwb"],
+        "cwb_center": hr_data["cwb_center"],
+        "cwb_scale": hr_data["cwb_scale"],
+        "cwb_valid": hr_data["cwb_valid"],
+        "era5": lr_data["era5"],
+        "era5_center": lr_data["era5_center"],
+        "era5_valid": lr_data["era5_valid"],
     }).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
 
     # [DEBUG] Dump data pre- & post-regridding, and print output data slices
     if DEBUG:
         dump_regrid_netcdf(
             f"{start_date}_{end_date}",
-            tread_data["pre_regrid"],
-            tread_data["post_regrid"],
-            era5_data["pre_regrid"],
-            era5_data["post_regrid"],
+            hr_data["pre_regrid"],
+            hr_data["post_regrid"],
+            lr_data["pre_regrid"],
+            lr_data["post_regrid"],
         )
 
     return out
@@ -185,7 +228,7 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
 def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
     """
-    Generates and verifies a consolidated dataset for TReAD and ERA5 data,
+    Generates and verifies a consolidated dataset for low-res and high-res data,
     then writes it to a Zarr file format.
 
     Parameters:
