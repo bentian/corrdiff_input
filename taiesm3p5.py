@@ -63,9 +63,9 @@ from util import is_local_testing, regrid_dataset, create_and_process_dataarray
 TAIESM_3P5_CHANNELS = {
     # Baseline
     "RAINNC": "precipitation",
-    "T2": "temperature_2m",
-    "U10": "eastward_wind_10m",
-    "V10": "northward_wind_10m",
+    "T2MEAN": "temperature_2m",
+    "U10MEAN": "eastward_wind_10m",
+    "V10MEAN": "northward_wind_10m",
 }
 
 def get_data_dir() -> str:
@@ -116,7 +116,6 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str) -> Tuple[xr.Da
         tuple: A tuple containing the original and regridded TaiESM 3.5km datasets.
     """
     surface_var_names = list(TAIESM_3P5_CHANNELS.keys())
-
     start_datetime = pd.to_datetime(str(start_date), format='%Y%m%d')
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
 
@@ -124,17 +123,42 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str) -> Tuple[xr.Da
     file_paths = get_file_paths(get_data_dir(), start_date, end_date)
     surface_ds = xr.open_mfdataset(
         file_paths,
-        preprocess=lambda ds: ds[surface_var_names].assign_coords(
-            time=pd.to_datetime(ds['Time'].values.astype(str), format='%Y-%m-%d_%H:%M:%S')
-        ).sel(time=slice(start_datetime, end_datetime))
+        preprocess=lambda ds: (
+            ds[surface_var_names].assign_coords(            # attach new time coord
+                time=pd.to_datetime(ds["Times"].astype(str), format="%Y-%m-%d_%H:%M:%S")
+            )
+            .rename({"Time": "time"})                       # unify time dimension name
+            .drop_vars("Times", errors="ignore")            # remove the raw WRF Times bytes
+            .sel(time=slice(start_datetime, end_datetime))  # select requested dates
+        )
     )
 
-    daily_ds = surface_ds[list(TAIESM_3P5_CHANNELS.keys())].rename(TAIESM_3P5_CHANNELS)
+    def crop_to_center(ds: xr.Dataset, target_shape=(304, 304)) -> xr.Dataset:
+        """Crop dataset to a centered (south_north, west_east) subdomain."""
+        ny, nx = target_shape
+        Ny, Nx = ds.dims["south_north"], ds.dims["west_east"]
+
+        sy = (Ny - ny) // 2
+        sx = (Nx - nx) // 2
+
+        return ds.isel(
+            south_north=slice(sy, sy + ny),
+            west_east=slice(sx, sx + nx),
+        )
+
+    # Center crop and attach coordinates from grid
+    ds_with_coords = crop_to_center(surface_ds, (304, 304)).assign_coords(
+        XLAT=(("south_north", "west_east"), grid["XLAT"].data),
+        XLONG=(("south_north", "west_east"), grid["XLONG"].data),
+    )
+
+    # Rename variables
+    output_ds = ds_with_coords.rename(TAIESM_3P5_CHANNELS)
 
     # Based on REF grid, regrid TaiESM 3.5km data over spatial dimensions for all timestamps.
-    regridded_daily = regrid_dataset(daily_ds, grid)
+    # regridded_daily = regrid_dataset(daily_ds, grid)
 
-    return daily_ds, regridded_daily
+    return output_ds, output_ds
 
 def get_cwb_pressure(cwb_channel: np.ndarray) -> xr.DataArray:
     """
