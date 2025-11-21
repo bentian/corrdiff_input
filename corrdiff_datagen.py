@@ -50,7 +50,6 @@ Notes:
 
 """
 import sys
-from enum import Enum
 from typing import Tuple
 
 import zarr
@@ -66,37 +65,26 @@ from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
-CURRENT_MODE = "CWA"
-
-class SSP(str, Enum):
-    historical = "historical"
-    ssp126 = "ssp126"
-    ssp245 = "ssp245"
-    ssp370 = "ssp370"
-    ssp585 = "ssp585"
-
 MODE_CONFIG = {
     "SSP": {
         "ref_grid_nc": "./ref_grid/wrf_304x304_grid_coords.nc",
         "load_layers": False,   # Whether to load terrain-related layers
-        "hr_generator": lambda grid, start, end: generate_taiesm3p5_output(
-            grid, start, end, SSP.historical
-        ),
-        "lr_generator": None,  # TODO: add TaiESM 100 km
+        "hr_generator": lambda grid, layers, start, end, ssp_suffix:
+            generate_taiesm3p5_output(grid, start, end, ssp_suffix),
+        "lr_generator": lambda grid, layers, start, end, ssp_suffix:
+            None # TODO
     },
     "CWA": {
         "ref_grid_nc": "./ref_grid/wrf_208x208_grid_coords.nc",
         "load_layers": True,
-        "hr_generator": lambda grid, start, end: generate_tread_output(
-            grid, start, end
-        ),
-        "lr_generator": lambda grid, layers, start, end: generate_era5_output(
-            grid, layers, start, end
-        ),
+        "hr_generator": lambda grid, layers, start, end, ssp_suffix:
+            generate_tread_output(grid, start, end),
+        "lr_generator": lambda grid, layers, start, end, ssp_suffix:
+            generate_era5_output(grid, layers, start, end),
     },
 }
 
-def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
+def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
     """
     Load the reference grid dataset and extract its coordinates and terrain-related variables.
 
@@ -121,7 +109,7 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
         - The terrain-related variables are returned as a dictionary with lowercase keys
           for consistency in downstream processing.
     """
-    cfg = MODE_CONFIG[CURRENT_MODE]
+    cfg = MODE_CONFIG[mode]
 
     ref = xr.open_dataset(cfg["ref_grid_nc"], engine='netcdf4')
 
@@ -134,7 +122,8 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
 
     return grid, grid_coords, layers
 
-def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
+def generate_output_dataset(mode: str, start_date: str, end_date: str,
+                            ssp_suffix: str) -> xr.Dataset:
     """
     Generates a consolidated output dataset by processing low-res and high-res data fields.
 
@@ -146,12 +135,12 @@ def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
         xr.Dataset: A dataset containing consolidated and processed low-res and high-res data fields.
     """
     # Get REF grid
-    grid, grid_coords, layers = get_ref_grid()
-    cfg = MODE_CONFIG[CURRENT_MODE]
+    grid, grid_coords, layers = get_ref_grid(mode)
+    cfg = MODE_CONFIG[mode]
 
     # Generate high-res and low-res output fields
-    hr_outputs = cfg["hr_generator"](grid, start_date, end_date)
-    lr_outputs = cfg["lr_generator"](grid, layers, start_date, end_date)
+    hr_outputs = cfg["hr_generator"](grid, layers, start_date, end_date, ssp_suffix)
+    lr_outputs = cfg["lr_generator"](grid, layers, start_date, end_date, ssp_suffix)
 
     # Group outputs into dictionaries
     hr_data = {
@@ -226,7 +215,7 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
     print(f"Data successfully saved to [{out_path}]")
 
-def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
+def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_suffix: str = '') -> None:
     """
     Generates and verifies a consolidated dataset for low-res and high-res data,
     then writes it to a Zarr file format.
@@ -239,7 +228,7 @@ def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
         None
     """
     # Generate the output dataset.
-    out = generate_output_dataset(start_date, end_date)
+    out = generate_output_dataset(mode, start_date, end_date, ssp_suffix)
     print(f"\nZARR dataset =>\n {out}")
 
     # Verify the output dataset.
@@ -251,26 +240,45 @@ def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
     # Write the output dataset to ZARR.
     write_to_zarr(f"corrdiff_dataset_{start_date}_{end_date}.zarr", out)
 
+def validate_ssp_suffix(raw: str) -> str:
+    """
+    Validate and normalize an SSP suffix string.
+    """
+    ALLOWED_SSP = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
+    if raw not in ALLOWED_SSP:
+        raise ValueError(f"SSP_SUFFIX must be one of {ALLOWED_SSP}")
+
+    return raw
+
 def main():
     """
     Main entry point for the script. Parses command-line arguments to generate
     a Zarr dataset for a specified date range.
 
-    Command-line Usage:
-        python corrdiff_datagen.py <start_date> <end_date>
+     Usage
+    -----
+        CWA / TReAD+ERA5 mode:
+            python corrdiff_datagen.py <start_date> <end_date>
 
-    Example:
+        SSP / TaiESM mode:
+            python corrdiff_datagen.py <start_date> <end_date> <ssp_suffix>
+
+    Examples
+    --------
         python corrdiff_datagen.py 20180101 20180103
-
-    Returns:
-        None
+        python corrdiff_datagen.py 20180101 20180103 ssp126
     """
-    if len(sys.argv) < 3:
-        print("Usage: python corrdiff_datagen.py <start_date> <end_date>")
-        print("  e.g., $python corrdiff_datagen.py 20180101 20180103")
+    argc = len(sys.argv)
+    if argc not in (3, 4):
+        print("Usage:")
+        print("  CWA : python corrdiff_datagen.py <start> <end>")
+        print("  SSP : python corrdiff_datagen.py <start> <end> <ssp_suffix>")
         sys.exit(1)
 
-    generate_corrdiff_zarr(sys.argv[1], sys.argv[2])
+    if argc == 3:
+        generate_corrdiff_zarr('CWA', sys.argv[1], sys.argv[2])
+    elif argc == 4:
+        generate_corrdiff_zarr('SSP', sys.argv[1], sys.argv[2], validate_ssp_suffix(sys.argv[3]))
 
 if __name__ == "__main__":
     main()
