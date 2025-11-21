@@ -33,14 +33,13 @@ Usage Example:
     from tread import generate_tread_output
 
     # Define inputs
-    file_path = "path/to/tread/data"
     ref_grid = xr.open_dataset("path/to/ref_grid.nc")
     start_date = "20220101"
     end_date = "20220131"
 
     # Generate TReAD outputs
     cwb, cwb_variable, cwb_center, cwb_scale, cwb_valid, pre_regrid, regridded = \
-        generate_tread_output(file_path, ref_grid, start_date, end_date)
+        generate_tread_output(ref_grid, start_date, end_date)
 
     print("Processed TReAD data:", regridded)
 
@@ -57,7 +56,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from util import regrid_dataset, create_and_process_dataarray
+from util import is_local_testing, regrid_dataset, create_and_process_dataarray
 
 TREAD_CHANNELS_ORIGINAL = {
     # Baseline
@@ -78,6 +77,24 @@ TREAD_CHANNELS = {
     "T2MIN": "minimum_temperature_2m",
 }
 
+def get_data_dir() -> str:
+    """
+    Return the base directory for TReAD surface data based on the execution environment.
+
+    Returns
+    -------
+    str
+        Path to the TReAD data directory:
+        - `./data/tread` when running in a local testing environment
+        - `/lfs/archive/TCCIP_data/TReAD/SFC/hr` when running on the BIG server
+
+    Notes
+    -----
+    This helper centralizes environment-dependent path handling so the rest of the
+    codebase can reference TReAD data without worrying about where it is stored.
+    """
+    return "./data/tread" if is_local_testing() else "/lfs/archive/TCCIP_data/TReAD/SFC/hr"
+
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     """
     Generate a list of file paths for the specified date range.
@@ -94,13 +111,12 @@ def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     folder_path = Path(folder)
     return [folder_path / f"wrfo2D_d02_{yyyymm}.nc" for yyyymm in date_range]
 
-def get_tread_dataset(file: str, grid: xr.Dataset,
-                      start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
+def get_tread_dataset(grid: xr.Dataset, start_date: str, end_date: str
+                      ) -> Tuple[xr.Dataset, xr.Dataset]:
     """
     Retrieve and process TReAD dataset within the specified date range.
 
     Parameters:
-        file (str): The file path or directory containing the dataset.
         grid (xarray.Dataset): The reference grid for regridding.
         start_date (str): The start date in 'YYYYMMDD' format.
         end_date (str): The end date in 'YYYYMMDD' format.
@@ -115,7 +131,7 @@ def get_tread_dataset(file: str, grid: xr.Dataset,
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
 
     # Read surface level data.
-    tread_files = get_file_paths(file, start_date, end_date)
+    tread_files = get_file_paths(get_data_dir(), start_date, end_date)
     tread_surface = xr.open_mfdataset(
         tread_files,
         preprocess=lambda ds: ds[surface_vars].assign_coords(
@@ -307,7 +323,6 @@ def get_cwb_valid(tread_out: xr.Dataset, cwb: xr.DataArray) -> xr.DataArray:
     )
 
 def generate_tread_output(
-    file: str,
     grid: xr.Dataset,
     start_date: str,
     end_date: str
@@ -324,7 +339,6 @@ def generate_tread_output(
     Generate processed TReAD output datasets and related CWB DataArrays for a specified date range.
 
     Parameters:
-        file (str): The file path or directory containing the dataset.
         grid (xarray.Dataset): The reference grid for regridding.
         start_date (str): The start date in 'YYYYMMDD' format.
         end_date (str): The end date in 'YYYYMMDD' format.
@@ -340,7 +354,7 @@ def generate_tread_output(
             - tread_out (xarray.Dataset): The regridded TReAD dataset.
     """
     # Extract TReAD data from file.
-    tread_pre_regrid, tread_out = get_tread_dataset(file, grid, start_date, end_date)
+    tread_pre_regrid, tread_out = get_tread_dataset(grid, start_date, end_date)
     print(f"\nTReAD dataset =>\n {tread_out}")
 
     # Prepare for generation

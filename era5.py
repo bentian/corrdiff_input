@@ -41,14 +41,13 @@ Usage Example:
     from era5 import generate_era5_output
 
     # Define inputs
-    folder = "path/to/era5/data"
     ref_grid = xr.open_dataset("path/to/ref_grid.nc")
     start_date = "20220101"
     end_date = "20220131"
 
     # Generate ERA5 outputs
     era5, era5_center, era5_scale, era5_valid, pre_regrid, regridded = \
-        generate_era5_output(folder, ref_grid, start_date, end_date)
+        generate_era5_output(ref_grid, start_date, end_date)
 
     print("Processed ERA5 data:", regridded)
 
@@ -103,6 +102,25 @@ ERA5_CHANNELS = [
     {'name': 'aspect', 'variable': 'slope_aspect'},
     {'name': 'wtp', 'variable': 'weighted_precipitation'}, # tp * TER / oro
 ]
+
+def get_data_dir() -> str:
+    """
+    Return the base directory for ERA5 data based on the execution environment.
+
+    Returns
+    -------
+    str
+        Path to the ERA5 dataset:
+        - `./data/era5` when running in a local testing environment
+        - `/lfs/archive/Reanalysis/ERA5` when running on the BIG server
+
+    Notes
+    -----
+    This function centralizes environment-dependent path selection so other
+    parts of the codebase can access ERA5 data without needing to know
+    where it is stored.
+    """
+    return "./data/era5" if is_local_testing() else "/lfs/archive/Reanalysis/ERA5"
 
 def get_prs_paths(
     folder: str,
@@ -265,7 +283,6 @@ def get_tread_data(terrain: xr.DataArray, time_coord: xr.DataArray) -> da.Array:
     )
 
 def get_era5_dataset(
-    folder: str,
     grid: xr.Dataset,
     layers: Dict[str, xr.DataArray],
     start_date: str,
@@ -276,7 +293,6 @@ def get_era5_dataset(
     reference grid and integrating additional topographic data.
 
     Parameters:
-        folder (str): The base directory containing the ERA5 data files.
         grid (xarray.Dataset): The reference grid dataset for spatial alignment and cropping.
         layers (Dict[str, xarray.DataArray]): Dictionary of terrain-related layers from the
                                               reference dataset (e.g., terrain height, slope,
@@ -308,6 +324,7 @@ def get_era5_dataset(
         - The dataset is renamed to standard variable names based on `ERA5_CHANNELS`.
     """
     duration = slice(str(start_date), str(end_date))
+    folder = get_data_dir()
 
     # Process and merge surface, pressure levels, and orography data
     era5_sfc = get_surface_data(folder, duration)
@@ -474,7 +491,6 @@ def get_era5_valid(era5: xr.DataArray) -> xr.DataArray:
     )
 
 def generate_era5_output(
-    folder: str,
     grid: xr.Dataset,
     terrain: xr.DataArray,
     start_date: str,
@@ -493,7 +509,6 @@ def generate_era5_output(
     its mean (center), standard deviation (scale), validity mask, and intermediate datasets.
 
     Parameters:
-        folder (str): The base directory containing the ERA5 data files.
         grid (xarray.Dataset): The reference grid dataset for regridding.
         terrain (xarray.DataArray): Orography (terrain height) data for the reference grid.
         start_date (str or datetime-like): The start date of the desired data range.
@@ -509,7 +524,7 @@ def generate_era5_output(
             - xarray.Dataset: The ERA5 dataset after regridding.
     """
     # Extract ERA5 data from file.
-    era5_pre_regrid, era5_out = get_era5_dataset(folder, grid, terrain, start_date, end_date)
+    era5_pre_regrid, era5_out = get_era5_dataset(grid, terrain, start_date, end_date)
     print(f"\nERA5 dataset =>\n {era5_out}")
 
     # Generate output fields

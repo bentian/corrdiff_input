@@ -18,7 +18,6 @@ Features:
 Functions:
 - `generate_output_dataset`: Combines processed TReAD and ERA5 data into a consolidated dataset.
 - `write_to_zarr`: Writes the consolidated dataset to Zarr format with compression.
-- `get_data_dir`: Determines the paths for TReAD and ERA5 datasets based on the environment.
 - `get_ref_grid`: Loads the reference grid dataset and extracts the required coordinates
    and terrain data.
 - `generate_corrdiff_zarr`: Orchestrates the generation, verification, and saving of the dataset.
@@ -93,14 +92,11 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
 
     return grid, grid_coords, {key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"]}
 
-def generate_output_dataset(tread_dir: str, era5_dir: str,
-                            start_date: str, end_date: str) -> xr.Dataset:
+def generate_output_dataset(start_date: str, end_date: str) -> xr.Dataset:
     """
     Generates a consolidated output dataset by processing TReAD and ERA5 data fields.
 
     Parameters:
-        tread_dir (str): Path to the directory containing the TReAD dataset.
-        era5_dir (str): Path to the directory containing ERA5 datasets.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
 
@@ -111,8 +107,8 @@ def generate_output_dataset(tread_dir: str, era5_dir: str,
     grid, grid_coords, layers = get_ref_grid()
 
     # Generate CWB (TReAD) and ERA5 output fields
-    tread_outputs = generate_tread_output(tread_dir, grid, start_date, end_date)
-    era5_outputs = generate_era5_output(era5_dir, grid, layers, start_date, end_date)
+    tread_outputs = generate_tread_output(grid, start_date, end_date)
+    era5_outputs = generate_era5_output(grid, layers, start_date, end_date)
 
     # Group outputs into dictionaries
     tread_data = {
@@ -187,26 +183,6 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
     print(f"Data successfully saved to [{out_path}]")
 
-def get_data_dir() -> Tuple[str, str]:
-    """
-    Determines the base directories for TReAD and ERA5 datasets based on the execution environment.
-
-    Returns:
-        tuple:
-            - str: The path to the TReAD data directory.
-            - str: The path to the ERA5 data directory.
-
-    Notes:
-        - In local testing environments (determined by `is_local_testing()`), the paths are set to
-          `./data/tread` and `./data/era5`.
-        - In BIG server environments, the paths point to remote directories:
-          `/lfs/archive/TCCIP_data/TReAD/SFC/hr` for TReAD and
-          `/lfs/archive/Reanalysis/ERA5` for ERA5.
-    """
-    if is_local_testing():
-        return "./data/tread", "./data/era5"
-    return "/lfs/archive/TCCIP_data/TReAD/SFC/hr", "/lfs/archive/Reanalysis/ERA5"
-
 def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
     """
     Generates and verifies a consolidated dataset for TReAD and ERA5 data,
@@ -219,10 +195,8 @@ def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
     Returns:
         None
     """
-    tread_dir, era5_dir = get_data_dir()
-
     # Generate the output dataset.
-    out = generate_output_dataset(tread_dir, era5_dir, start_date, end_date)
+    out = generate_output_dataset(start_date, end_date)
     print(f"\nZARR dataset =>\n {out}")
 
     # Verify the output dataset.
