@@ -69,7 +69,7 @@ TAIESM_3P5_CHANNELS = {
 
 def get_data_dir(ssp_level: str) -> str:
     """
-    Return the base directory for the TaiESM 3.5 km dataset based on the
+    Return the base directory for the TaiESM 3.5km dataset based on the
     execution environment.
 
     Parameters
@@ -79,7 +79,7 @@ def get_data_dir(ssp_level: str) -> str:
     Returns
     -------
     str
-        Path to the TaiESM 3.5 km data directory. This is:
+        Path to the TaiESM 3.5km data directory. This is:
         - `./data/taiesm3p5` when running locally (as detected by is_local_testing())
         - `/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_<ssp_level>` when
           running on the BIG server.
@@ -349,7 +349,7 @@ def generate_output(
     xr.Dataset     # post_regrid
 ]:
     """
-    Generate processed TaiESM 3.5 km outputs and corresponding CWB diagnostic
+    Generate processed TaiESM 3.5km outputs and corresponding CWB diagnostic
     DataArrays for a specified date range.
 
     Parameters
@@ -364,13 +364,13 @@ def generate_output(
     -------
     tuple
         A tuple containing:
-        - **cwb** (xr.DataArray): Final processed CWB tensor used by CorrDiff.
-        - **cwb_variable** (xr.DataArray): Names of variables included in the CWB tensor.
-        - **cwb_center** (xr.DataArray): Per-variable mean values (centering).
-        - **cwb_scale** (xr.DataArray): Per-variable standard deviations (scaling).
-        - **cwb_valid** (xr.DataArray): Boolean mask indicating valid time steps.
-        - **pre_regrid** (xr.Dataset): Native TaiESM 3.5 km dataset before spatial regridding.
-        - **post_regrid** (xr.Dataset): TaiESM 3.5 km dataset regridded to the target domain.
+        - xr.DataArray: Final processed TaiESM 3.5km tensor used by CorrDiff.
+        - xr.DataArray: Names of variables included in the TaiESM 3.5km tensor.
+        - xr.DataArray: Per-variable mean values (centering).
+        - xr.DataArray: Per-variable standard deviations (scaling).
+        - xr.DataArray: Boolean mask indicating valid time steps.
+        - xr.Dataset: Native TaiESM 3.5km dataset before spatial regridding.
+        - xr.Dataset: TaiESM 3.5km dataset regridded to the target domain.
 
     Notes
     -----

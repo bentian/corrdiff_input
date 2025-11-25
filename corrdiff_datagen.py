@@ -56,33 +56,10 @@ import zarr
 import xarray as xr
 import numpy as np
 from dask.diagnostics import ProgressBar
-
-from tread import generate_tread_output
-from era5 import generate_era5_output
-from taiesm3p5 import generate_output as generate_taiesm3p5_output
-from taiesm100 import generate_output as generate_taiesm100_output
 from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
-MODE_CONFIG = {
-    "SSP": {
-        "ref_grid_nc": "./ref_grid/wrf_304x304_grid_coords.nc",
-        "load_layers": False,   # Whether to load terrain-related layers
-        "hr_generator": lambda grid, layers, start, end, ssp_level:
-            generate_taiesm3p5_output(grid, start, end, ssp_level),
-        "lr_generator": lambda grid, layers, start, end, ssp_level:
-            generate_taiesm100_output(grid, start, end, ssp_level),
-    },
-    "CWA": {
-        "ref_grid_nc": "./ref_grid/wrf_208x208_grid_coords.nc",
-        "load_layers": True,
-        "hr_generator": lambda grid, layers, start, end, ssp_level:
-            generate_tread_output(grid, start, end),
-        "lr_generator": lambda grid, layers, start, end, ssp_level:
-            generate_era5_output(grid, layers, start, end),
-    },
-}
 
 def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
     """
@@ -93,6 +70,9 @@ def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
     - A dictionary of coordinate arrays specified by `GRID_COORD_KEYS`.
     - A dictionary of terrain-related variables (`TER`, `SLOPE`, `ASPECT`) for use in
       regridding and terrain processing.
+
+    Parameters:
+        mode (str): Processing mode, either 'CWA' or 'SSP'.
 
     Returns:
         tuple:
@@ -109,18 +89,81 @@ def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
         - The terrain-related variables are returned as a dictionary with lowercase keys
           for consistency in downstream processing.
     """
-    cfg = MODE_CONFIG[mode]
-
-    ref = xr.open_dataset(cfg["ref_grid_nc"], engine='netcdf4')
+    # Reference grid paths
+    ref_grid_path = (
+        "./ref_grid/wrf_208x208_grid_coords.nc" if mode == "CWA"  # CWA domain
+        else "./ref_grid/wrf_304x304_grid_coords.nc"  # SSP domain
+    )
+    ref = xr.open_dataset(ref_grid_path, engine='netcdf4')
 
     grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
     grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
     layers = (
-        {key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] if key in ref}
-        if cfg["load_layers"] else {}
+        { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] if key in ref }
+        if mode == 'CWA' else {}
     )
 
     return grid, grid_coords, layers
+
+def generate_hr_lr_outputs(
+    mode: str,
+    grid: xr.Dataset,
+    layers: dict,
+    start_date: str,
+    end_date: str,
+    ssp_level: str
+) -> Tuple[xr.Dataset, xr.Dataset]:
+    """
+    Generate paired high-resolution (HR) and low-resolution (LR) datasets
+    according to the selected processing mode.
+
+    Parameters
+    ----------
+    mode : str
+        Processing mode. Must be one of:
+            - "CWA": Use TReAD as high-res and ERA5 as low-res.
+            - "SSP": Use TaiESM 3.5 km as high-res and TaiESM 100 km as low-res.
+    grid : xr.Dataset
+        Reference grid used for spatial alignment and regridding.
+    layers : dict
+        Optional terrain-related fields ('ter', 'slope', 'aspect').
+        Required only in "CWA" mode; ignored for "SSP".
+    start_date : str
+        Start date in 'YYYYMMDD' format.
+    end_date : str
+        End date in 'YYYYMMDD' format.
+    ssp_level : str
+        SSP level used *only* in "SSP" mode (e.g., "historical", "ssp126", "ssp245").
+
+    Returns
+    -------
+    (xr.Dataset, xr.Dataset)
+        A tuple (hr_ds, lr_ds), where:
+        - hr_ds: High-resolution dataset for the selected mode.
+        - lr_ds: Low-resolution dataset for the selected mode.
+
+    Notes
+    -----
+    - In "CWA" mode, this function returns (TReAD_output, ERA5_output).
+    - In "SSP" mode, this function returns (TaiESM_3.5km_output, TaiESM_100km_output).
+    - Import statements are inside the mode branches to reduce unnecessary
+      dependency loading for modes that do not use those modules.
+    """
+    if mode == 'CWA':   # CWA
+        from tread import generate_tread_output
+        from era5 import generate_era5_output
+        return (
+            generate_tread_output(grid, start_date, end_date),
+            generate_era5_output(grid, layers, start_date, end_date)
+        )
+
+    # SSP
+    from taiesm3p5 import generate_output as generate_taiesm3p5_output
+    from taiesm100 import generate_output as generate_taiesm100_output
+    return (
+        generate_taiesm3p5_output(grid, start_date, end_date, ssp_level),
+        generate_taiesm100_output(grid, start_date, end_date, ssp_level)
+    )
 
 def generate_output_dataset(mode: str, start_date: str, end_date: str,
                             ssp_level: str) -> xr.Dataset:
@@ -128,19 +171,20 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
     Generates a consolidated output dataset by processing low-res and high-res data fields.
 
     Parameters:
+        mode (str): Processing mode, either 'CWA' or 'SSP'.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
+        ssp_level (str): SSP level used to select the TaiESM dataset directory
+                            (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
         xr.Dataset: A dataset containing consolidated and processed low-res and high-res data fields.
     """
     # Get REF grid
     grid, grid_coords, layers = get_ref_grid(mode)
-    cfg = MODE_CONFIG[mode]
 
-    # Generate high-res and low-res output fields
-    hr_outputs = cfg["hr_generator"](grid, layers, start_date, end_date, ssp_level)
-    lr_outputs = cfg["lr_generator"](grid, layers, start_date, end_date, ssp_level)
+    # Generate high-res and low-res output datasets
+    hr_outputs, lr_outputs = generate_hr_lr_outputs(mode, grid, layers, start_date, end_date, ssp_level)
 
     # Group outputs into dictionaries
     hr_data = {
@@ -221,8 +265,11 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level:
     then writes it to a Zarr file format.
 
     Parameters:
+        mode (str): Processing mode, either 'CWA' or 'SSP'.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
+        ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
+                                    (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
         None
