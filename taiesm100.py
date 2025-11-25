@@ -93,21 +93,21 @@ TAIESM_100_CHANNELS = [
     {'name': 'v10', 'variable': 'northward_wind_10m'},
 ]
 
-def get_data_dir(ssp_suffix: str) -> str:
+def get_data_dir(ssp_level: str) -> str:
     """
     Return the base directory for the TaiESM 3.5 km dataset based on the
     execution environment.
 
     Parameters
     ----------
-    ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory on BIG server.
+    ssp_level (str): SSP level used to select the TaiESM dataset directory on BIG server.
 
     Returns
     -------
     str
         Path to the TaiESM 3.5 km data directory. This is:
         - `./data/taiesm100` when running locally (as detected by is_local_testing())
-        - `/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_suffix}_daily/` when
+        - `/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/` when
           running on the BIG server.
 
     Notes
@@ -116,7 +116,7 @@ def get_data_dir(ssp_suffix: str) -> str:
     need to handle local vs. remote directory differences.
     """
     return "./data/taiesm3p5" if is_local_testing() else \
-            f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_suffix}_daily/"
+            f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/"
 
 def get_prs_paths(
     folder: str,
@@ -226,7 +226,7 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     return sfc_data
 
 def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
-                ssp_suffix: str) -> Tuple[xr.Dataset, xr.Dataset]:
+                ssp_level: str) -> Tuple[xr.Dataset, xr.Dataset]:
     """
     Retrieve, process, and regrid TaiESM 100km datasets for a specified date range, aligning with a
     reference grid.
@@ -235,7 +235,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         grid (xarray.Dataset): The reference grid for regridding.
         start_date (str): The start date in 'YYYYMMDD' format.
         end_date (str): The end date in 'YYYYMMDD' format.
-        ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory.
+        ssp_level (str): SSP level used to select the TaiESM dataset directory.
 
     Returns:
         Tuple[xarray.Dataset, xarray.Dataset]:
@@ -256,7 +256,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         - The dataset is renamed to standard variable names based on `TAIESM_100_CHANNELS`.
     """
     duration = slice(str(start_date), str(end_date))
-    folder = get_data_dir(ssp_suffix)
+    folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
     lr_data = xr.merge([
@@ -415,15 +415,15 @@ def generate_output(
     grid: xr.Dataset,
     start_date: str,
     end_date: str,
-    ssp_suffix: str = ''
+    ssp_level: str = ''
 ) -> Tuple[
-    xr.DataArray,  # TaiESM 100km dataarray
-    xr.DataArray,  # TaiESM 100km variable
-    xr.DataArray,  # TaiESM 100km center
-    xr.DataArray,  # TaiESM 100km scale
-    xr.DataArray,  # TaiESM 100km valid
-    xr.Dataset,    # TaiESM 100km pre-regrid dataset
-    xr.Dataset     # TaiESM 100km post-regrid dataset
+    xr.DataArray,  # era5
+    xr.DataArray,  # era5_variable
+    xr.DataArray,  # era5_center
+    xr.DataArray,  # era5_scale
+    xr.DataArray,  # era5_valid
+    xr.Dataset,    # pre_regrid
+    xr.Dataset     # post_regrid
 ]:
     """
     Processes TaiESM 100km data files to generate consolidated outputs, including the TaiESM 100km DataArray,
@@ -433,7 +433,7 @@ def generate_output(
         grid (xr.Dataset): Reference grid defining the target spatial domain for regridding.
         start_date (str): Start date in 'YYYYMMDD' format (inclusive).
         end_date (str): End date in 'YYYYMMDD' format (inclusive).
-        ssp_suffix (str, optional): Scenario suffix used to select the TaiESM dataset directory
+        ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
                                     (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
@@ -446,8 +446,8 @@ def generate_output(
             - xarray.Dataset: The TaiESM 100km dataset after regridding.
     """
     # Extract TaiESM 100km data from file.
-    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_suffix)
-    print(f"\n[{ssp_suffix}] TaiESM_100km dataset =>\n {regridded_ds}")
+    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_level)
+    print(f"\n[{ssp_level}] TaiESM_100km dataset =>\n {regridded_ds}")
 
     # Generate output fields
     era5 = get_era5(regridded_ds)

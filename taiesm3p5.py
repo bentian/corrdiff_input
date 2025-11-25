@@ -67,21 +67,21 @@ TAIESM_3P5_CHANNELS = {
     "V10MEAN": "northward_wind_10m",
 }
 
-def get_data_dir(ssp_suffix: str) -> str:
+def get_data_dir(ssp_level: str) -> str:
     """
     Return the base directory for the TaiESM 3.5 km dataset based on the
     execution environment.
 
     Parameters
     ----------
-    ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory on BIG server.
+    ssp_level (str): SSP level used to select the TaiESM dataset directory on BIG server.
 
     Returns
     -------
     str
         Path to the TaiESM 3.5 km data directory. This is:
         - `./data/taiesm3p5` when running locally (as detected by is_local_testing())
-        - `/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_<suffix>` when
+        - `/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_<ssp_level>` when
           running on the BIG server.
 
     Notes
@@ -90,7 +90,7 @@ def get_data_dir(ssp_suffix: str) -> str:
     need to handle local vs. remote directory differences.
     """
     return "./data/taiesm3p5" if is_local_testing() else \
-            f"/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_{ssp_suffix}"
+            f"/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_{ssp_level}"
 
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     """
@@ -109,7 +109,7 @@ def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     return [folder_path / f"wrfday_d01_{yyyymm}.nc" for yyyymm in date_range]
 
 def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
-                ssp_suffix: str) -> Tuple[xr.Dataset, xr.Dataset]:
+                ssp_level: str) -> Tuple[xr.Dataset, xr.Dataset]:
     """
     Retrieve and process TaiESM 3.5km dataset within the specified date range.
 
@@ -117,7 +117,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         grid (xarray.Dataset): The reference grid for regridding.
         start_date (str): The start date in 'YYYYMMDD' format.
         end_date (str): The end date in 'YYYYMMDD' format.
-        ssp_suffix (str): Scenario suffix used to select the TaiESM dataset directory.
+        ssp_level (str): SSP level used to select the TaiESM dataset directory.
 
     Returns:
         tuple: A tuple containing the original and regridded TaiESM 3.5km datasets.
@@ -127,7 +127,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
 
     # Read surface level data.
-    file_paths = get_file_paths(get_data_dir(ssp_suffix), start_date, end_date)
+    file_paths = get_file_paths(get_data_dir(ssp_level), start_date, end_date)
     surface_ds = xr.open_mfdataset(
         file_paths,
         preprocess=lambda ds: (
@@ -338,7 +338,7 @@ def generate_output(
     grid: xr.Dataset,
     start_date: str,
     end_date: str,
-    ssp_suffix: str = ''
+    ssp_level: str = ''
 ) -> Tuple[
     xr.DataArray,  # cwb
     xr.DataArray,  # cwb_variable
@@ -357,7 +357,7 @@ def generate_output(
     grid (xr.Dataset): Reference grid defining the target spatial domain for regridding.
     start_date (str): Start date in 'YYYYMMDD' format (inclusive).
     end_date (str): End date in 'YYYYMMDD' format (inclusive).
-    ssp_suffix (str, optional): Scenario suffix used to select the TaiESM dataset directory
+    ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
                                 (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns
@@ -379,8 +379,8 @@ def generate_output(
     and regridding to the specified reference grid.
     """
     # Extract TaiESM 3.5km data from file.
-    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_suffix)
-    print(f"\n[{ssp_suffix}] TaiESM_3.5km dataset  =>\n {regridded_ds}")
+    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_level)
+    print(f"\n[{ssp_level}] TaiESM_3.5km dataset  =>\n {regridded_ds}")
 
     # Prepare for generation
     cwb_channel = np.arange(len(TAIESM_3P5_CHANNELS))

@@ -69,17 +69,17 @@ MODE_CONFIG = {
     "SSP": {
         "ref_grid_nc": "./ref_grid/wrf_304x304_grid_coords.nc",
         "load_layers": False,   # Whether to load terrain-related layers
-        "hr_generator": lambda grid, layers, start, end, ssp_suffix:
-            generate_taiesm3p5_output(grid, start, end, ssp_suffix),
-        "lr_generator": lambda grid, layers, start, end, ssp_suffix:
-            generate_taiesm100_output(grid, start, end, ssp_suffix),
+        "hr_generator": lambda grid, layers, start, end, ssp_level:
+            generate_taiesm3p5_output(grid, start, end, ssp_level),
+        "lr_generator": lambda grid, layers, start, end, ssp_level:
+            generate_taiesm100_output(grid, start, end, ssp_level),
     },
     "CWA": {
         "ref_grid_nc": "./ref_grid/wrf_208x208_grid_coords.nc",
         "load_layers": True,
-        "hr_generator": lambda grid, layers, start, end, ssp_suffix:
+        "hr_generator": lambda grid, layers, start, end, ssp_level:
             generate_tread_output(grid, start, end),
-        "lr_generator": lambda grid, layers, start, end, ssp_suffix:
+        "lr_generator": lambda grid, layers, start, end, ssp_level:
             generate_era5_output(grid, layers, start, end),
     },
 }
@@ -123,7 +123,7 @@ def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
     return grid, grid_coords, layers
 
 def generate_output_dataset(mode: str, start_date: str, end_date: str,
-                            ssp_suffix: str) -> xr.Dataset:
+                            ssp_level: str) -> xr.Dataset:
     """
     Generates a consolidated output dataset by processing low-res and high-res data fields.
 
@@ -139,8 +139,8 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
     cfg = MODE_CONFIG[mode]
 
     # Generate high-res and low-res output fields
-    hr_outputs = cfg["hr_generator"](grid, layers, start_date, end_date, ssp_suffix)
-    lr_outputs = cfg["lr_generator"](grid, layers, start_date, end_date, ssp_suffix)
+    hr_outputs = cfg["hr_generator"](grid, layers, start_date, end_date, ssp_level)
+    lr_outputs = cfg["lr_generator"](grid, layers, start_date, end_date, ssp_level)
 
     # Group outputs into dictionaries
     hr_data = {
@@ -215,7 +215,7 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
     print(f"Data successfully saved to [{out_path}]")
 
-def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_suffix: str = '') -> None:
+def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level: str = '') -> None:
     """
     Generates and verifies a consolidated dataset for low-res and high-res data,
     then writes it to a Zarr file format.
@@ -228,7 +228,7 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_suffix
         None
     """
     # Generate the output dataset.
-    out = generate_output_dataset(mode, start_date, end_date, ssp_suffix)
+    out = generate_output_dataset(mode, start_date, end_date, ssp_level)
     print(f"\nZARR dataset =>\n {out}")
 
     # Verify the output dataset.
@@ -238,15 +238,15 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_suffix
         return
 
     # Write the output dataset to ZARR.
-    write_to_zarr(f"corrdiff_{ssp_suffix}dataset_{start_date}_{end_date}.zarr", out)
+    write_to_zarr(f"corrdiff_{ssp_level}dataset_{start_date}_{end_date}.zarr", out)
 
-def validate_ssp_suffix(raw: str) -> str:
+def validate_ssp_level(raw: str) -> str:
     """
     Validate and normalize an SSP suffix string.
     """
     ALLOWED_SSP = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
     if raw not in ALLOWED_SSP:
-        raise ValueError(f"SSP_SUFFIX must be one of {ALLOWED_SSP}")
+        raise ValueError(f"ssp_level must be one of {ALLOWED_SSP}")
 
     return raw
 
@@ -261,7 +261,7 @@ def main():
             python corrdiff_datagen.py <start_date> <end_date>
 
         SSP / TaiESM mode:
-            python corrdiff_datagen.py <start_date> <end_date> <ssp_suffix>
+            python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
 
     Examples
     --------
@@ -272,13 +272,13 @@ def main():
     if argc not in (3, 4):
         print("Usage:")
         print("  CWA : python corrdiff_datagen.py <start> <end>")
-        print("  SSP : python corrdiff_datagen.py <start> <end> <ssp_suffix>")
+        print("  SSP : python corrdiff_datagen.py <start> <end> <ssp_level>")
         sys.exit(1)
 
     if argc == 3:
         generate_corrdiff_zarr('CWA', sys.argv[1], sys.argv[2])
     elif argc == 4:
-        generate_corrdiff_zarr('SSP', sys.argv[1], sys.argv[2], validate_ssp_suffix(sys.argv[3]))
+        generate_corrdiff_zarr('SSP', sys.argv[1], sys.argv[2], validate_ssp_level(sys.argv[3]))
 
 if __name__ == "__main__":
     main()
