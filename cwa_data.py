@@ -25,9 +25,6 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
     - A dictionary of terrain-related variables (`TER`, `SLOPE`, `ASPECT`) for use in
       regridding and terrain processing.
 
-    Parameters:
-        mode (str): Processing mode, either 'CWA' or 'SSP'.
-
     Returns:
         tuple:
             - grid (xarray.Dataset): A dataset containing the latitude ('lat') and

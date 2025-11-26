@@ -45,14 +45,8 @@ Usage:
 
     Example:
         python corrdiff_datagen.py 20180101 20180103
-
-Notes:
-- Ensure that the `REF_GRID_NC` file exists and contains valid reference grid data.
-- The script handles both local and remote environments based on the presence of specific folders.
-
 """
 import sys
-from typing import Tuple
 
 import zarr
 import xarray as xr
@@ -60,9 +54,8 @@ import numpy as np
 from dask.diagnostics import ProgressBar
 
 import cwa_data as cwa
+import ssp_data as ssp
 from util import verify_dataset, dump_regrid_netcdf
-from taiesm3p5 import generate_output as generate_taiesm3p5_output
-from taiesm100 import generate_output as generate_taiesm100_output
 
 DEBUG = False  # Set to True to enable debugging
 
@@ -83,11 +76,10 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
                     low-res and high-res data fields.
     """
     # Generate high-res and low-res output datasets
-    if mode == 'CWA':
-        hr_outputs, lr_outputs, grid_coords = cwa.generate_output_dataset(start_date, end_date)
-    else: # SSP
-        hr_outputs = generate_taiesm3p5_output(grid, start_date, end_date, ssp_level)
-        lr_outputs = generate_taiesm100_output(grid, start_date, end_date, ssp_level)
+    hr_outputs, lr_outputs, grid_coords = (
+        cwa.generate_output_dataset(start_date, end_date) if mode == "CWA"
+        else ssp.generate_output_dataset(start_date, end_date, ssp_level)
+    )
 
     # Group outputs into dictionaries
     hr_data = {
