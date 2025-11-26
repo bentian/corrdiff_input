@@ -1,3 +1,43 @@
+"""
+ERA5 reanalysis loader and preprocessor for CorrDiff low-resolution inputs.
+
+This module is responsible for:
+- Locating ERA5 pressure-level and surface files based on the execution
+  environment (local testing vs BIG server).
+- Building file paths for:
+    * Pressure levels (PRS)
+    * Surface fields (SFC)
+    * Orography (static topography)
+- Loading multi-month ERA5 data with `xarray.open_mfdataset` and sub-selecting
+  the requested time range.
+- Splitting the workflow into:
+    * Pressure-level fields (z, t, u, v, w on 500/700/850/925/1000 hPa)
+    * Surface fields (tp, t2m, u10, v10, msl, etc.)
+    * Orography / terrain data
+- Cropping the global ERA5 domain to the Taiwan / reference grid extent.
+- Regridding ERA5 to a given WRF-style reference grid using `regrid_dataset`.
+- Expanding high-resolution terrain layers (TER, slope, aspect) in time and
+  injecting them into the ERA5 grid, including:
+    * `oro` / terrain height
+    * `slope` / `aspect`
+    * `wtp` (weighted precipitation = tp * TER / oro)
+
+Key public helpers:
+    - `get_era5_channels()`:
+        Returns the channel specification (name, pressure, variable) used to
+        map ERA5 fields to CorrDiff channels.
+    - `get_data_dir()`:
+        Resolves the root ERA5 directory depending on environment.
+    - `get_era5_dataset(grid, layers, start_date, end_date)`:
+        High-level entry point that loads, crops, regrids, and augments ERA5
+        into:
+            * a cropped native-resolution dataset, and
+            * a regridded, terrain-enhanced dataset ready for CorrDiff.
+
+All lower-level helpers (`get_prs_paths`, `get_sfc_paths`, `get_surface_data`,
+`get_pressure_level_data`, `get_era5_orography`, `get_tread_data`) are
+factored out to keep the main pipeline clear and reusable.
+"""
 from pathlib import Path
 from typing import Dict, List, Tuple
 

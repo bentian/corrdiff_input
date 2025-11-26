@@ -32,12 +32,8 @@ Dependencies:
 - `numpy`: For numerical operations.
 - `dask.diagnostics.ProgressBar`: For monitoring progress during dataset writing.
 - Modules:
-  - CWA
-    - `tread`: For TReAD dataset processing.
-    - `era5`: For ERA5 dataset processing.
-  - SSP
-    - `taiesmep5`: For TaiESM 3.5 km dataset processing.
-    - `taiesm100`: For TaiESM 100 km dataset processing.
+  - `cwa_data`: CWA mode related functions.
+  - `ssp_data`: SSP mode related functions.
   - `util`: For utility functions like dataset verification and regridding.
 
 Usage:

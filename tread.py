@@ -1,3 +1,33 @@
+"""
+TReAD (Taiwan ReAnalysis Downscaling) surface data loader and preprocessor.
+
+This module handles:
+- Locating TReAD monthly surface files based on execution environment
+  (local testing vs. BIG server).
+- Loading multi-month WRF-formatted TReAD data using `xarray.open_mfdataset`.
+- Converting WRF "Times" strings into a proper `time` coordinate.
+- Computing daily aggregates needed by CorrDiff:
+    * Daily mean of baseline variables (T2, U10, V10, RH2, PSFC).
+    * Daily precipitation accumulation (TP = RAINC + RAINNC).
+    * Daily max/min temperature (T2MAX, T2MIN).
+- Mapping native variable names to CorrDiff channel names.
+- Regridding the processed dataset to a provided reference grid.
+
+The main public function is:
+    - `get_tread_dataset(grid, start_date, end_date)`
+
+which returns:
+    * the pre-regrid daily dataset, and
+    * the same dataset regridded to match the target grid.
+
+Constants:
+    - `TREAD_CHANNELS_ORIGINAL` — mapping of native WRF variables to CorrDiff names.
+    - `TREAD_CHANNELS` — full CorrDiff channel mapping including derived fields.
+    - `get_tread_channels()` — returns the channel specification used by CorrDiff.
+
+This module forms the “high-resolution” branch of the CorrDiff input pipeline
+for CWA mode.
+"""
 from pathlib import Path
 from typing import Dict, List, Tuple
 

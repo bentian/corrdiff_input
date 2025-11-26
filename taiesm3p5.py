@@ -1,3 +1,34 @@
+"""
+TaiESM 3.5 km loader and preprocessor for CorrDiff high-resolution inputs.
+
+This module is responsible for:
+- Locating TaiESM 3.5 km daily WRF outputs based on the execution environment:
+    * local testing:    ./data/taiesm3p5
+    * BIG server:       /lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_<ssp_level>
+- Building monthly file paths for a requested date range.
+- Loading and stitching multiple NetCDF files with `xarray.open_mfdataset`.
+- Converting WRF "Times" byte strings to a proper `time` coordinate and
+  sub-selecting a user-specified time window.
+- Cropping the native TaiESM 3.5 km domain to the CorrDiff reference grid and
+  attaching latitude/longitude coordinates from that grid.
+- Regridding the cropped dataset to the reference grid using `regrid_dataset`.
+- Renaming model variable names to CorrDiff-friendly channel names.
+
+Key public helpers:
+    - `get_taiesm3p5_channels()`:
+        Returns the mapping from raw TaiESM variable names (e.g., "RAINNC",
+        "T2MEAN") to CorrDiff variable names (e.g., "precipitation",
+        "temperature_2m").
+    - `get_data_dir(ssp_level)`:
+        Resolves the TaiESM 3.5 km base directory, choosing between local and
+        BIG server paths and embedding the requested SSP level.
+    - `get_file_paths(folder, start_date, end_date)`:
+        Builds the list of monthly TaiESM files covering the requested period.
+    - `get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)`:
+        High-level entry point that loads, crops, regrids, and renames the
+        TaiESM 3.5 km data, returning both the pre-regrid and regridded
+        datasets ready for CorrDiff.
+"""
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -7,7 +38,6 @@ import xarray as xr
 from util import is_local_testing, regrid_dataset
 
 TAIESM_3P5_CHANNELS = {
-    # Baseline
     "RAINNC": "precipitation",
     "T2MEAN": "temperature_2m",
     "U10MEAN": "eastward_wind_10m",

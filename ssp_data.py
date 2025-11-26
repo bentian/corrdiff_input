@@ -1,4 +1,43 @@
+"""
+Pipeline for generating CorrDiff-ready TaiESM high-res (3.5km) and low-res
+(100km) datasets on a common reference grid.
 
+This module provides:
+
+- Reference grid handling
+  - `get_ref_grid()` loads the fixed 304*304 WRF reference grid and returns:
+    - a lightweight grid dataset with latitude/longitude (lat, lon),
+    - the original grid coordinate variables (e.g. XLAT, XLONG).
+
+- TaiESM 3.5 km (high-resolution) processing
+  - `generate_taiesm3p5_output()`:
+    - reads TaiESM 3.5km data for a given date range and SSP level,
+    - regrids it to the reference grid,
+    - stacks selected variables into a CorrDiff-style tensor,
+    - computes per-channel metadata:
+      - `cwb_variable` (variable names),
+      - `cwb_pressure` (pressure levels, if applicable),
+      - `cwb_center` (mean),
+      - `cwb_scale` (standard deviation),
+      - `cwb_valid` (valid time steps).
+
+- TaiESM 100 km (low-resolution) processing
+  - `generate_taiesm100_output()`:
+    - reads TaiESM 100km data for the same period and SSP level,
+    - regrids it to the same reference grid,
+    - stacks selected variables into a low-res tensor (`era5`-style),
+    - computes per-channel center, scale, and validity masks.
+
+- Joint output
+  - `generate_output_dataset()` ties everything together, returning:
+    - the processed TaiESM 3.5km outputs,
+    - the processed TaiESM 100km outputs,
+    - the reference grid coordinates.
+
+The resulting high-res and low-res products are spatially aligned and share a
+consistent channel description, making them suitable as paired input/target
+fields for CorrDiff training and evaluation under different SSP scenarios.
+"""
 from typing import Tuple
 
 import numpy as np
@@ -62,6 +101,30 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict]:
 
 def generate_output_dataset(start_date: str, end_date: str, ssp_level: str
                             ) -> Tuple[xr.Dataset, xr.Dataset]:
+    """
+    Generates output datasets for TaiESM 3.5km and TaiESM 100km data under a
+    specified Shared Socioeconomic Pathway (SSP) level and date range.
+
+    This function first retrieves a common reference grid and its coordinates.
+    It then uses this grid to generate two xarray.Dataset objects: one for
+    TaiESM 3.5km data and another for TaiESM 100km data. Both datasets are
+    generated for the specified date range and according to the given SSP scenario.
+
+    Args:
+        start_date (str): The start date for generating the datasets in format "YYYYMMDD".
+        end_date (str): The end date for generating the datasets in format "YYYYMMDD".
+        ssp_level (str): The Shared Socioeconomic Pathway (SSP) level to be used
+                         for generating the datasets. (e.g., "ssp126", "ssp245", "ssp585")
+
+    Returns:
+        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
+            - taiesm3p5_output (xr.Dataset): An xarray Dataset containing the
+                                             generated TaiESM 3.5km output data.
+            - taiesm100_output (xr.Dataset): An xarray Dataset containing the
+                                             generated TaiESM 100km output data.
+            - grid_coords (xr.Dataset): An xarray Dataset containing the
+                                        coordinates of the reference grid.
+    """
     grid, grid_coords = get_ref_grid()
     return (
         generate_taiesm3p5_output(grid, start_date, end_date, ssp_level),

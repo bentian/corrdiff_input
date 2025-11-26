@@ -1,4 +1,31 @@
+"""
+Utilities for building CorrDiff training inputs from TReAD (high-resolution) and
+ERA5 (low-resolution) datasets on a common reference grid.
 
+This module provides:
+
+- Reference grid handling:
+  - `get_ref_grid()` loads the fixed WRF reference grid, returning:
+    - a lightweight grid dataset with latitude/longitude fields,
+    - the original grid coordinate variables (e.g. XLAT, XLONG),
+    - terrain-related layers (TER, SLOPE, ASPECT).
+
+- High-resolution (TReAD / CWB-style) processing:
+  - `generate_tread_output()` reads, regrids, and packs TReAD fields into:
+    - a stacked high-res DataArray (`cwb`) with time * channel * y * x,
+    - companion 1D channel metadata arrays: pressure, variable name,
+      per-channel mean (`cwb_center`), scale (`cwb_scale`), and validity (`cwb_valid`).
+
+- Low-resolution (ERA5) processing:
+  - `generate_era5_output()` reads, regrids, and packs ERA5 fields into:
+    - a stacked low-res DataArray (`era5`) with time * channel * y * x,
+    - companion 1D channel metadata arrays: pressure, variable name,
+      per-channel mean (`era5_center`), scale (`era5_scale`), and validity (`era5_valid`).
+
+The resulting high-res and low-res DataArrays are aligned on the same spatial grid
+and share consistent channel metadata, making them suitable as paired inputs/targets
+for CorrDiff model training and evaluation.
+"""
 from typing import Dict, List, Tuple
 
 import dask.array as da
@@ -45,7 +72,7 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
 
     grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
     grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
-    layers = { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] if key in ref }
+    layers = { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] }
 
     return grid, grid_coords, layers
 
@@ -54,6 +81,28 @@ def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
 # -------------------------------------------------------------------
 
 def generate_output_dataset(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
+    """
+    Generates output datasets for TReAD and ERA5 based on a specified date range
+    and a common reference grid.
+
+    This function first retrieves a reference grid, its coordinates, and layer
+    information. It then uses this grid to generate two xarray.Dataset objects:
+    one representing TReAD output and another for ERA5 output, both
+    constrained by the given start and end dates.
+
+    Args:
+        start_date (str): The start date for generating the datasets in format "YYYYMMDD".
+        end_date (str): The end date for generating the datasets in format "YYYYMMDD".
+
+    Returns:
+        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
+            - tread_output (xr.Dataset): An xarray Dataset containing the
+                                         generated TReAD output data.
+            - era5_output (xr.Dataset): An xarray Dataset containing the
+                                        generated ERA5 output data.
+            - grid_coords (xr.Dataset): An xarray Dataset containing the
+                                        coordinates of the reference grid.
+    """
     grid, grid_coords, layers = get_ref_grid()
     return (
         generate_tread_output(grid, start_date, end_date),
@@ -141,12 +190,12 @@ def generate_era5_output(
 
     Returns:
         tuple:
-            - xarray.DataArray: The consolidated ERA5 DataArray with stacked variables.
-            - xarray.DataArray: The mean values for each ERA5 channel.
-            - xarray.DataArray: The standard deviation values for each ERA5 channel.
-            - xarray.DataArray: The validity mask for each ERA5 channel over time.
-            - xarray.Dataset: The ERA5 dataset before regridding.
-            - xarray.Dataset: The ERA5 dataset after regridding.
+            - era5 (xarray.DataArray): The consolidated ERA5 DataArray with stacked variables.
+            - era5_center (xarray.DataArray): The mean values for each ERA5 channel.
+            - era5_scale (xarray.DataArray): The standard deviation values for each ERA5 channel.
+            - era5_valid (xarray.DataArray): The validity mask for each ERA5 channel over time.
+            - era5_pre_regrid (xarray.Dataset): The ERA5 dataset before regridding.
+            - era5_out(xarray.Dataset): The ERA5 dataset after regridding.
     """
     # Extract ERA5 data from file.
     era5_pre_regrid, era5_out = get_era5_dataset(grid, terrain, start_date, end_date)
