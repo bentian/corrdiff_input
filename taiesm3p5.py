@@ -141,7 +141,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     )
 
     # Crop & attach coordinates per REF grid, and rename variables.
-    output_ds = (
+    cropped_with_coords = (
         # FIXME - Remove hardcoded lat/lon once XLAT & XLONG are available
         surface_ds
             .isel(south_north=slice(0, 304), west_east=slice(4, 308))
@@ -153,9 +153,9 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     )
 
     # Based on REF grid, regrid TaiESM 3.5km data over spatial dimensions for all timestamps.
-    regridded_ds = regrid_dataset(output_ds, grid)
+    output_ds = regrid_dataset(cropped_with_coords, grid)
 
-    return output_ds, regridded_ds
+    return cropped_with_coords, output_ds
 
 def get_cwb_pressure(cwb_channel: np.ndarray) -> xr.DataArray:
     """
@@ -369,20 +369,20 @@ def generate_output(
     and regridding to the specified reference grid.
     """
     # Extract TaiESM 3.5km data from file.
-    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_level)
-    print(f"\n[{ssp_level}] TaiESM_3.5km dataset  =>\n {regridded_ds}")
+    preregrid_ds, output_ds = get_dataset(grid, start_date, end_date, ssp_level)
+    print(f"\n[{ssp_level}] TaiESM_3.5km dataset  =>\n {output_ds}")
 
     # Prepare for generation
     cwb_channel = np.arange(len(TAIESM_3P5_CHANNELS))
     cwb_pressure = get_cwb_pressure(cwb_channel)
     # Define variable names and create DataArray for cwb_variable.
-    cwb_var_names = np.array(list(regridded_ds.data_vars.keys()), dtype="<U26")
+    cwb_var_names = np.array(list(output_ds.data_vars.keys()), dtype="<U26")
 
     # Generate output fields
     cwb_variable = get_cwb_variable(cwb_var_names, cwb_pressure)
-    cwb = get_cwb(regridded_ds, cwb_var_names, cwb_channel, cwb_pressure, cwb_variable)
-    cwb_center = get_cwb_center(regridded_ds, cwb_pressure, cwb_variable)
-    cwb_scale = get_cwb_scale(regridded_ds, cwb_pressure, cwb_variable)
-    cwb_valid = get_cwb_valid(regridded_ds, cwb)
+    cwb = get_cwb(output_ds, cwb_var_names, cwb_channel, cwb_pressure, cwb_variable)
+    cwb_center = get_cwb_center(output_ds, cwb_pressure, cwb_variable)
+    cwb_scale = get_cwb_scale(output_ds, cwb_pressure, cwb_variable)
+    cwb_valid = get_cwb_valid(output_ds, cwb)
 
-    return cwb, cwb_variable, cwb_center, cwb_scale, cwb_valid, output_ds, regridded_ds
+    return cwb, cwb_variable, cwb_center, cwb_scale, cwb_valid, preregrid_ds, output_ds

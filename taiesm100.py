@@ -66,31 +66,31 @@ import xarray as xr
 from util import regrid_dataset, create_and_process_dataarray, is_local_testing
 
 TAIESM_100_CHANNELS = [
-    {'name': 'tp', 'variable': 'precipitation'},
+    {'name': 'pr', 'variable': 'precipitation'},
     # 500
-    {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 500, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
+    # {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
+    # {'name': 't', 'pressure': 500, 'variable': 'temperature'},
+    # {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
+    # {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
     # 700
-    {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 700, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
+    # {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
+    # {'name': 't', 'pressure': 700, 'variable': 'temperature'},
+    # {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
+    # {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
     # 850
-    {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 850, 'variable': 'temperature'},
+    # {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
+    # {'name': 't', 'pressure': 850, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 850, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 850, 'variable': 'northward_wind'},
     # 925
-    {'name': 'z', 'pressure': 925, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 925, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
+    # {'name': 'z', 'pressure': 925, 'variable': 'geopotential_height'},
+    # {'name': 't', 'pressure': 925, 'variable': 'temperature'},
+    # {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
+    # {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
     # Remaining surface channels
-    {'name': 't2m', 'variable': 'temperature_2m'},
-    {'name': 'u10', 'variable': 'eastward_wind_10m'},
-    {'name': 'v10', 'variable': 'northward_wind_10m'},
+    {'name': 'ts', 'variable': 'temperature_2m'},
+    # {'name': 'u10', 'variable': 'eastward_wind_10m'},
+    # {'name': 'v10', 'variable': 'northward_wind_10m'},
 ]
 
 def get_data_dir(ssp_level: str) -> str:
@@ -115,7 +115,7 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "./data/taiesm3p5" if is_local_testing() else \
+    return "./data/taiesm100" if is_local_testing() else \
             f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/"
 
 def get_prs_paths(
@@ -141,12 +141,12 @@ def get_prs_paths(
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     folder_path = Path(folder)
     if is_local_testing():
-        return [folder_path / f"ERA5_PRS_{var}_{yyyymm}_r1440x721_day.nc"
+        return [folder_path / f"TaiESM1_PRS_{var}_{yyyymm}_r1440x721_day.nc"
                 for var in variables for yyyymm in date_range]
 
     return [
         folder_path / "PRS" / subfolder / var / yyyymm[:4] / \
-            f"ERA5_PRS_{var}_{yyyymm}_r1440x721_day.nc"
+            f"TaiESM1_PRS_{var}_{yyyymm}_r1440x721_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
@@ -173,11 +173,12 @@ def get_sfc_paths(
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     folder_path = Path(folder)
     if is_local_testing():
-        return [folder_path / f"ERA5_SFC_{var}_201801_r1440x721_day.nc" for var in variables]
+        return [folder_path / f"TaiESM1_SFC_{var}_{yyyymm}_r1440x721_day.nc"
+                for var in variables for yyyymm in date_range]
 
     return [
         folder_path / "SFC" / subfolder / var / yyyymm[:4] / \
-            f"ERA5_SFC_{var}_{yyyymm}_r1440x721_day.nc"
+            f"TaiESM1_SFC_{var}_{yyyymm}_r1440x721_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
@@ -194,12 +195,17 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     """
     pressure_levels = sorted({ch['pressure'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch})
     pressure_level_vars = list(dict.fromkeys(
-        ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch
+        f'{ch['name']}{ch['pressure']}' for ch in TAIESM_100_CHANNELS if 'pressure' in ch
     ))
 
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
-    return xr.open_mfdataset(prs_paths, combine='by_coords') \
-            .sel(level=pressure_levels, time=duration)
+    prs_data = xr.open_mfdataset(prs_paths, combine="by_coords")
+    print(f'\nprs_data => {prs_data}')
+    return (
+        prs_data.assign_coords(plev=prs_data.plev / 100)    # Convert Pa to hPa
+                .rename({"plev": "level"})                  # Rename coord
+                .sel(level=pressure_levels, time=duration)
+    )
 
 def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     """
@@ -220,8 +226,10 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
 
     sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
     sfc_data = xr.open_mfdataset(sfc_paths, combine='by_coords').sel(time=duration)
-    sfc_data['tp'] = sfc_data['tp'] * 24 * 1000  # Convert unit to mm/day
-    sfc_data['tp'].attrs['units'] = 'mm/day'
+    print(f'\nsfc_data => {sfc_data}')
+
+    sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
+    sfc_data['pr'].attrs['units'] = 'mm/day'
 
     return sfc_data
 
@@ -250,7 +258,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
             4. **Cropping:** Limits the dataset to the geographic bounds of the reference grid.
             5. **Regridding:** Interpolate to match TaiESM 100km data to the reference grid resolution.
 
-        - The **final dataset** (`era5_out`) includes:
+        - The **final dataset** (`output_ds`) includes:
             - TaiESM 100km atmospheric and surface variables.
 
         - The dataset is renamed to standard variable names based on `TAIESM_100_CHANNELS`.
@@ -259,30 +267,37 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
-    lr_data = xr.merge([
+    sfc_prs_ds = xr.merge([
         get_surface_data(folder, duration),
         get_pressure_level_data(folder, duration)
     ])
 
     # Crop to Taiwan domain given TaiESM 100km is global data.
     lat, lon = grid.XLAT, grid.XLONG
-    lr_data_cropped = lr_data.sel(
-        latitude=slice(lat.max().item(), lat.min().item()),
-        longitude=slice(lon.min().item(), lon.max().item()))
+    cropped_with_coords = sfc_prs_ds.sel(
+        lat=slice(lat.min().item(), lat.max().item()),
+        lon=slice(lon.min().item(), lon.max().item())
+    ).rename(
+        {
+            'pr': 'precipitation',
+            'ts': 'temperature_2m',
+            'ua': 'eastward_wind',
+            'va': 'northward_wind',
+        }
+        # FIXME { ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS }
+    )
 
-    # Based on REF grid, regrid data over spatial dimensions for all timestamps.
-    lr_out = regrid_dataset(lr_data_cropped, grid)
+    # TODO - enlarge cropped_with_coords to output_ds
+    output_ds = cropped_with_coords
 
-    lr_out = lr_out.rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
+    return cropped_with_coords, output_ds
 
-    return lr_data_cropped, lr_out
-
-def get_era5(lr_out: xr.Dataset) -> xr.DataArray:
+def get_era5(output_ds: xr.Dataset) -> xr.DataArray:
     """
     Constructs a consolidated TaiESM 100km DataArray by stacking specified variables across channels.
 
     Parameters:
-        lr_out (xarray.Dataset): The processed TaiESM 100km dataset after regridding.
+        output_ds (xarray.Dataset): The processed TaiESM 100km dataset after regridding.
 
     Returns:
         xarray.DataArray: A DataArray containing the stacked TaiESM 100km variables across defined channels,
@@ -301,27 +316,27 @@ def get_era5(lr_out: xr.Dataset) -> xr.DataArray:
     # Create TaiESM 100km DataArray
     stack_era5 = da.stack(
         [
-            lr_out[ch['variable']].sel(level=ch['pressure']).data
-            if 'pressure' in ch else lr_out[ch['variable']].data
+            output_ds[ch['variable']].sel(level=ch['pressure']).data
+            if 'pressure' in ch else output_ds[ch['variable']].data
             for ch in TAIESM_100_CHANNELS
         ],
         axis=1
     )
     era5_dims = ["time", "era5_channel", "south_north", "west_east"]
     era5_coords = {
-        "time": lr_out["time"],
+        "time": output_ds["time"],
         "era5_channel": lr_channel,
-        "south_north": lr_out["south_north"],
-        "west_east": lr_out["west_east"],
-        "XLAT": lr_out["XLAT"],
-        "XLONG": lr_out["XLONG"],
+        "south_north": output_ds["south_north"],
+        "west_east": output_ds["west_east"],
+        "XLAT": output_ds["XLAT"],
+        "XLONG": output_ds["XLONG"],
         **channel_coords,
     }
     era5_chunk_sizes = {
         "time": 1,
         "era5_channel": lr_channel.size,
-        "south_north": lr_out["south_north"].size,
-        "west_east": lr_out["west_east"].size,
+        "south_north": output_ds["south_north"].size,
+        "west_east": output_ds["west_east"].size,
     }
 
     return create_and_process_dataarray(
@@ -446,13 +461,13 @@ def generate_output(
             - xarray.Dataset: The TaiESM 100km dataset after regridding.
     """
     # Extract TaiESM 100km data from file.
-    output_ds, regridded_ds = get_dataset(grid, start_date, end_date, ssp_level)
-    print(f"\n[{ssp_level}] TaiESM_100km dataset =>\n {regridded_ds}")
+    preregrid_ds, output_ds = get_dataset(grid, start_date, end_date, ssp_level)
+    print(f"\n[{ssp_level}] TaiESM_100km dataset =>\n {output_ds}")
 
     # Generate output fields
-    era5 = get_era5(regridded_ds)
+    era5 = get_era5(output_ds)
     era5_center = get_era5_center(era5)
     era5_scale = get_era5_scale(era5)
     era5_valid = get_era5_valid(era5)
 
-    return era5, era5_center, era5_scale, era5_valid, output_ds, regridded_ds
+    return era5, era5_center, era5_scale, era5_valid, preregrid_ds, output_ds
