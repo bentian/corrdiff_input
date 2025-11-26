@@ -4,7 +4,7 @@ from typing import List, Tuple
 import pandas as pd
 import xarray as xr
 
-from util import regrid_dataset, is_local_testing
+from util import is_local_testing
 
 TAIESM_100_CHANNELS = [
     {'name': 'pr', 'variable': 'precipitation'},
@@ -201,7 +201,8 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
             1. **Surface Data:** Retrieves TaiESM 100km surface data (`get_surface_data`).
             2. **Pressure Level Data:** Retrieves pressure-level data (`get_pressure_level_data`).
             4. **Cropping:** Limits the dataset to the geographic bounds of the reference grid.
-            5. **Regridding:** Interpolate to match TaiESM 100km data to the reference grid resolution.
+            5. **Regridding:** Interpolate to match TaiESM 100km data to
+                                the reference grid resolution.
 
         - The **final dataset** (`output_ds`) includes:
             - TaiESM 100km atmospheric and surface variables.
