@@ -32,12 +32,8 @@ Dependencies:
 - `numpy`: For numerical operations.
 - `dask.diagnostics.ProgressBar`: For monitoring progress during dataset writing.
 - Modules:
-  - CWA
-    - `tread`: For TReAD dataset processing.
-    - `era5`: For ERA5 dataset processing.
-  - SSP
-    - `taiesmep5`: For TaiESM 3.5 km dataset processing.
-    - `taiesm100`: For TaiESM 100 km dataset processing.
+  - `cwa_data`: CWA mode related functions.
+  - `ssp_data`: SSP mode related functions.
   - `util`: For utility functions like dataset verification and regridding.
 
 Usage:
@@ -45,72 +41,19 @@ Usage:
 
     Example:
         python corrdiff_datagen.py 20180101 20180103
-
-Notes:
-- Ensure that the `REF_GRID_NC` file exists and contains valid reference grid data.
-- The script handles both local and remote environments based on the presence of specific folders.
-
 """
 import sys
-from typing import Tuple
 
 import zarr
 import xarray as xr
 import numpy as np
 from dask.diagnostics import ProgressBar
 
+import cwa_data as cwa
+import ssp_data as ssp
 from util import verify_dataset, dump_regrid_netcdf
-from tread import generate_tread_output
-from era5 import generate_era5_output
-from taiesm3p5 import generate_output as generate_taiesm3p5_output
-from taiesm100 import generate_output as generate_taiesm100_output
 
 DEBUG = False  # Set to True to enable debugging
-GRID_COORD_KEYS = ["XLAT", "XLONG"]
-
-def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
-    """
-    Load the reference grid dataset and extract its coordinates and terrain-related variables.
-
-    This function reads a predefined reference grid NetCDF file and extracts:
-    - A dataset containing latitude (`lat`) and longitude (`lon`) grids.
-    - A dictionary of coordinate arrays specified by `GRID_COORD_KEYS`.
-    - A dictionary of terrain-related variables (`TER`, `SLOPE`, `ASPECT`) for use in
-      regridding and terrain processing.
-
-    Parameters:
-        mode (str): Processing mode, either 'CWA' or 'SSP'.
-
-    Returns:
-        tuple:
-            - grid (xarray.Dataset): A dataset containing the latitude ('lat') and
-              longitude ('lon') grids for spatial alignment.
-            - grid_coords (dict): A dictionary of extracted coordinate arrays defined
-              by `GRID_COORD_KEYS` for downstream processing.
-            - terrain_layers (dict): A dictionary containing terrain-related variables
-              ('ter', 'slope', 'aspect') from the reference grid.
-
-    Notes:
-        - The reference grid file path is defined by the global constant `REF_GRID_NC`.
-        - The coordinate keys to extract are defined in `GRID_COORD_KEYS`.
-        - The terrain-related variables are returned as a dictionary with lowercase keys
-          for consistency in downstream processing.
-    """
-    # Reference grid paths
-    ref_grid_path = (
-        "./ref_grid/wrf_208x208_grid_coords.nc" if mode == "CWA"  # CWA domain
-        else "./ref_grid/wrf_304x304_grid_coords.nc"  # SSP domain
-    )
-    ref = xr.open_dataset(ref_grid_path, engine='netcdf4')
-
-    grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
-    grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
-    layers = (
-        { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] if key in ref }
-        if mode == 'CWA' else {}
-    )
-
-    return grid, grid_coords, layers
 
 def generate_output_dataset(mode: str, start_date: str, end_date: str,
                             ssp_level: str) -> xr.Dataset:
@@ -128,16 +71,11 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
         xr.Dataset: A dataset containing consolidated and processed
                     low-res and high-res data fields.
     """
-    # Get REF grid
-    grid, grid_coords, layers = get_ref_grid(mode)
-
     # Generate high-res and low-res output datasets
-    if mode == 'CWA':
-        hr_outputs = generate_tread_output(grid, start_date, end_date)
-        lr_outputs = generate_era5_output(grid, layers, start_date, end_date)
-    else: # SSP
-        hr_outputs = generate_taiesm3p5_output(grid, start_date, end_date, ssp_level)
-        lr_outputs = generate_taiesm100_output(grid, start_date, end_date, ssp_level)
+    hr_outputs, lr_outputs, grid_coords = (
+        cwa.generate_output_dataset(start_date, end_date) if mode == "CWA"
+        else ssp.generate_output_dataset(start_date, end_date, ssp_level)
+    )
 
     # Group outputs into dictionaries
     hr_data = {
@@ -161,7 +99,7 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
     # Create the output dataset
     out = xr.Dataset(
         coords={
-            **{key: grid_coords[key] for key in GRID_COORD_KEYS},
+            **{key: grid_coords[key] for key in cwa.GRID_COORD_KEYS},
             "XTIME": np.datetime64("2025-02-08 16:00:00", "ns"),  # Placeholder for timestamp
             "time": hr_data["cwb"].time,
             "cwb_variable": hr_data["cwb_variable"],

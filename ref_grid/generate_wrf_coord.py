@@ -92,13 +92,13 @@ VARS = {
 # -----------------------------------------------------------
 # Helper function
 # -----------------------------------------------------------
-def load_var(nc: xr.Dataset, name: str):
+def load_var(nc: xr.Dataset, var_name: str):
     """Load a variable; error if required and missing, else return None."""
-    spec = VARS[name]
-    if name in nc.variables:
-        return nc.variables[name][:]
+    spec = VARS[var_name]
+    if var_name in nc.variables:
+        return nc.variables[var_name][:]
     if spec["required"]:
-        raise KeyError(f"Required variable '{name}' not found in input file.")
+        raise KeyError(f"Required variable '{var_name}' not found in input file.")
     return None
 
 def write_var(var_name: str, data: xr.Dataset):
