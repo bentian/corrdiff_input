@@ -57,7 +57,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing, create_and_process_dataarray
+from util import is_local_testing, regrid_dataset, create_and_process_dataarray
 
 TAIESM_3P5_CHANNELS = {
     # Baseline
@@ -140,32 +140,22 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         )
     )
 
-    def crop_to_center(ds: xr.Dataset, target_shape=(304, 304)) -> xr.Dataset:
-        """Crop dataset to a centered (south_north, west_east) subdomain."""
-        ny, nx = target_shape
-        Ny, Nx = ds.dims["south_north"], ds.dims["west_east"]
-
-        sy = (Ny - ny) // 2
-        sx = (Nx - nx) // 2
-
-        return ds.isel(
-            south_north=slice(sy, sy + ny),
-            west_east=slice(sx, sx + nx),
-        )
-
-    # Center crop and attach coordinates from grid
-    ds_with_coords = crop_to_center(surface_ds, (304, 304)).assign_coords(
-        XLAT=(("south_north", "west_east"), grid["XLAT"].data),
-        XLONG=(("south_north", "west_east"), grid["XLONG"].data),
+    # Crop & attach coordinates per REF grid, and rename variables.
+    output_ds = (
+        # TODO - Remove hardcoded lat/lon once XLAT & XLONG are available
+        surface_ds
+            .isel(south_north=slice(0, 304), west_east=slice(4, 308))
+            .assign_coords(
+                lat=(("south_north", "west_east"), grid.XLAT.data),
+                lon=(("south_north", "west_east"), grid.XLONG.data),
+            )
+            .rename(TAIESM_3P5_CHANNELS)
     )
 
-    # Rename variables
-    output_ds = ds_with_coords.rename(TAIESM_3P5_CHANNELS)
-
     # Based on REF grid, regrid TaiESM 3.5km data over spatial dimensions for all timestamps.
-    # regridded_daily = regrid_dataset(daily_ds, grid)
+    regridded_ds = regrid_dataset(output_ds, grid)
 
-    return output_ds, output_ds
+    return output_ds, regridded_ds
 
 def get_cwb_pressure(cwb_channel: np.ndarray) -> xr.DataArray:
     """

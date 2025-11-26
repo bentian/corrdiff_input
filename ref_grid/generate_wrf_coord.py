@@ -101,27 +101,31 @@ def load_var(nc, spec):
         raise KeyError(f"Required variable '{name}' not found in input file.")
     return None
 
+def write_var(name, data):
+    """Create and write a 2D variable to the NetCDF output file."""
+    unit = spec_by_name[name]["unit"]
+    var = ncfile.createVariable(name, "f4", ("south_north", "west_east"))
+    var[:, :] = data
+    var.units = unit
+
 # -------------------------------------------------------------------
 # Load variables
 # -------------------------------------------------------------------
 nc_in = Dataset(INPUT_FILE, mode='r')
-var_data = {spec["name"]: load_var(nc_in, spec) for spec in VARS}
-spec_by_name = {spec["name"]: spec for spec in VARS}
+var_data = { spec["name"]: load_var(nc_in, spec) for spec in VARS }
+spec_by_name = { spec["name"]: spec for spec in VARS }
 
 lat = var_data["XLAT"]
 lon = var_data["XLONG"]
-
 # All non-coordinate fields (LANDMASK + optional ones)
-field_names = [v["name"] for v in VARS if v["name"] not in ("XLAT", "XLONG")]
-field_data = {name: var_data[name] for name in field_names}
+layer_data = {
+    spec["name"]: var_data[spec["name"]] for spec in VARS
+    if spec["name"] not in ("XLAT", "XLONG")
+}
 
-# Report detected (non-coordinate) fields
-print(f"Input file:\n  {INPUT_FILE}")
-print("Detected variables:")
-for name in field_names:
-    status = "FOUND" if field_data[name] is not None else "MISSING"
-    print(f"  {name} - {status}")
-print()
+# Report found (non-coordinate) fields
+found_layers = [ name for name in layer_data if layer_data[name] is not None ]
+print(f"Input file: {INPUT_FILE}\nFound layers: {found_layers}\n")
 
 # -------------------------------------------------------------------
 # Crop or regrid
@@ -150,11 +154,11 @@ if need_regrid:
     lat_grid, lon_grid = new_grid["lat"].values, new_grid["lon"].values
 
     # Regrid all existing fields
-    for name, arr in field_data.items():
+    for name, arr in layer_data.items():
         if arr is not None:
-            field_data[name] = regridder(xr.DataArray(arr))
+            layer_data[name] = regridder(xr.DataArray(arr))
 else:
-    print("Cropping to smaller grid...")
+    print("Cropping to smaller grid ...")
 
     # Find center indices
     idy, idx = np.abs(lat[:, 0] - clat).argmin(), np.abs(lon[0, :] - clon).argmin()
@@ -162,14 +166,15 @@ else:
     # Calculate slicing indices
     slat, elat = max(0, idy - ny // 2), min(lat.shape[0], idy + ny // 2)
     slon, elon = max(0, idx - nx // 2), min(lon.shape[1], idx + nx // 2)
+    print(f'  slice (lat, lon) = [{slat}:{elat}, {slon}:{elon}]')
 
     # Crop the grid
     lat_grid, lon_grid = lat[slat:elat, slon:elon], lon[slat:elat, slon:elon]
 
     # Regrid all existing fields
-    for name, arr in field_data.items():
+    for name, arr in layer_data.items():
         if arr is not None:
-            field_data[name] = arr[slat:elat, slon:elon]
+            layer_data[name] = arr[slat:elat, slon:elon]
 
 # -------------------------------------------------------------------
 # Save to output file
@@ -183,18 +188,12 @@ with Dataset(OUTPUT_FILE, mode="w", format="NETCDF4") as ncfile:
     ncfile.createDimension("south_north", lat_grid.shape[0])
     ncfile.createDimension("west_east", lon_grid.shape[1])
 
-    def write_var(name, data):
-        unit = spec_by_name[name]["unit"]
-        var = ncfile.createVariable(name, "f4", ("south_north", "west_east"))
-        var[:, :] = data
-        var.units = unit
-
     # Coordinates
     write_var("XLAT", lat_grid)
     write_var("XLONG", lon_grid)
 
     # All other fields, only if present
-    for name, arr in field_data.items():
+    for name, arr in layer_data.items():
         if arr is not None:
             write_var(name, arr)
 
