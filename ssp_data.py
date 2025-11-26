@@ -177,7 +177,8 @@ def generate_taiesm3p5_output(
     and regridding to the specified reference grid.
     """
     # Extract TaiESM 3.5km data from file.
-    taiesm3p5_pre_regrid, taiesm3p5_out = get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)
+    taiesm3p5_pre_regrid, taiesm3p5_out = \
+        get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)
     print(f"\nTaiESM_3.5km dataset [{ssp_level}] =>\n {taiesm3p5_out}")
 
     # Prepare for generation
@@ -214,8 +215,9 @@ def generate_taiesm100_output(
     xr.Dataset     # TaiESM 100km post-regrid dataset
 ]:
     """
-    Processes TaiESM 100km data files to generate consolidated outputs, including the TaiESM 100km DataArray,
-    its mean (center), standard deviation (scale), validity mask, and intermediate datasets.
+    Processes TaiESM 100km data files to generate consolidated outputs, including
+    the TaiESM 100km DataArray, its mean (center), standard deviation (scale),
+    validity mask, and intermediate datasets.
 
     Parameters:
         grid (xarray.Dataset): The reference grid dataset for regridding.
@@ -232,7 +234,8 @@ def generate_taiesm100_output(
             - xarray.Dataset: The TaiESM 100km dataset after regridding.
     """
     # Extract TaiESM 100km data from file.
-    taisem100_pre_regrid, taisem100_out = get_taiesm100_dataset(grid, start_date, end_date, ssp_level)
+    taisem100_pre_regrid, taisem100_out = \
+        get_taiesm100_dataset(grid, start_date, end_date, ssp_level)
     print(f"\nTaiESM 100km dataset [{ssp_level}] =>\n {taisem100_out}")
 
     # Generate output fields

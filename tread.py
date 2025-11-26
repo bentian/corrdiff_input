@@ -56,6 +56,7 @@ TREAD_CHANNELS = {
 }
 
 def get_tread_channels() -> Dict[str, str]:
+    """Returns TReAD channel list."""
     return TREAD_CHANNELS
 
 def get_data_dir() -> str:

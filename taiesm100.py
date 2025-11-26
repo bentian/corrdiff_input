@@ -35,6 +35,7 @@ TAIESM_100_CHANNELS = [
 ]
 
 def get_taiesm100_channels() -> dict:
+    """Returns TaiESM 100km channel list."""
     return TAIESM_100_CHANNELS
 
 def get_data_dir(ssp_level: str) -> str:
@@ -139,7 +140,7 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     """
     pressure_levels = sorted({ch['pressure'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch})
     pressure_level_vars = list(dict.fromkeys(
-        f'{ch['name']}{ch['pressure']}' for ch in TAIESM_100_CHANNELS if 'pressure' in ch
+        f"{ch['name']}{ch['pressure']}" for ch in TAIESM_100_CHANNELS if 'pressure' in ch
     ))
 
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)

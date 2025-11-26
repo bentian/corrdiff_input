@@ -45,6 +45,7 @@ TAIESM_3P5_CHANNELS = {
 }
 
 def get_taiesm3p5_channels() -> Dict[str, str]:
+    """Returns TaiESM 3.5km channel list."""
     return TAIESM_3P5_CHANNELS
 
 def get_data_dir(ssp_level: str) -> str:

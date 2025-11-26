@@ -85,6 +85,7 @@ ERA5_CHANNELS = [
 ]
 
 def get_era5_channels() -> dict:
+    """Returns ERA5 channel list."""
     return ERA5_CHANNELS
 
 def get_data_dir() -> str:
