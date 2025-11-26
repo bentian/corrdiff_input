@@ -1,9 +1,10 @@
 """
 CorrDiff Dataset Generation and Zarr Storage.
 
-This script processes low-resolution (low-res) and high-resolution (high-res) datasets to generate a consolidated dataset,
-verify its integrity, and save it in Zarr format. It integrates multiple data processing
-modules and performs spatial regridding, variable aggregation, and data compression.
+This script processes low-resolution (low-res) and high-resolution (high-res) datasets
+to generate a consolidated dataset, verify its integrity, and save it in Zarr format.
+It integrates multiple data processing modules and performs spatial regridding,
+variable aggregation, and data compression.
 
 Features:
 - Processes low-res and high-res datasets for a specified date range.
@@ -16,7 +17,8 @@ Features:
 - Saves the dataset in compressed Zarr format.
 
 Functions:
-- `generate_output_dataset`: Combines processed low-res and high-res data into a consolidated dataset.
+- `generate_output_dataset`: Combines processed low-res and high-res data into
+                             a consolidated dataset.
 - `write_to_zarr`: Writes the consolidated dataset to Zarr format with compression.
 - `get_ref_grid`: Loads the reference grid dataset and extracts the required coordinates
    & optionally terrain data.
@@ -178,13 +180,15 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
                             (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
-        xr.Dataset: A dataset containing consolidated and processed low-res and high-res data fields.
+        xr.Dataset: A dataset containing consolidated and processed
+                    low-res and high-res data fields.
     """
     # Get REF grid
     grid, grid_coords, layers = get_ref_grid(mode)
 
     # Generate high-res and low-res output datasets
-    hr_outputs, lr_outputs = generate_hr_lr_outputs(mode, grid, layers, start_date, end_date, ssp_level)
+    hr_outputs, lr_outputs = \
+        generate_hr_lr_outputs(mode, grid, layers, start_date, end_date, ssp_level)
 
     # Group outputs into dictionaries
     hr_data = {
@@ -291,9 +295,9 @@ def validate_ssp_level(raw: str) -> str:
     """
     Validate and normalize an SSP suffix string.
     """
-    ALLOWED_SSP = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
-    if raw not in ALLOWED_SSP:
-        raise ValueError(f"ssp_level must be one of {ALLOWED_SSP}")
+    allowed_ssp_levels = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
+    if raw not in allowed_ssp_levels:
+        raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
 
     return raw
 
