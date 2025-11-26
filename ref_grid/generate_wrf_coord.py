@@ -80,31 +80,31 @@ ny, nx = 304, 304               # Desired grid dimensions
 # === Input / Output ===
 INPUT_FILE = './TAIESM_tw3.5km_coord2d.nc'
 OUTPUT_FILE = f"./wrf_{ny}x{nx}_grid_coords.nc"
-VARS = [
-    {'name': 'XLAT', 'unit': 'degrees_north', 'required': True },
-    {'name': 'XLONG', 'unit': 'degrees_east', 'required': True },
-    {'name': 'LANDMASK', 'unit': 'land mask', 'required': True },
-    {'name': 'TER', 'unit': 'meters', 'required': False },
-    {'name': 'SLOPE', 'unit': 'slope', 'required': False },
-    {'name': 'ASPECT', 'unit': 'degree', 'required': False },
-]
+VARS = {
+    'XLAT':     {'unit': 'degrees_north',   'required': True },
+    'XLONG':    {'unit': 'degrees_east',    'required': True },
+    'LANDMASK': {'unit': 'land mask',       'required': True },
+    'TER':      {'unit': 'meters',          'required': False },
+    'SLOPE':    {'unit': 'slope',           'required': False },
+    'ASPECT':   {'unit': 'degree',          'required': False },
+}
 
 # -----------------------------------------------------------
 # Helper function
 # -----------------------------------------------------------
-def load_var(nc, spec):
+def load_var(nc: xr.Dataset, name: str):
     """Load a variable; error if required and missing, else return None."""
-    name = spec["name"]
+    spec = VARS[name]
     if name in nc.variables:
         return nc.variables[name][:]
     if spec["required"]:
         raise KeyError(f"Required variable '{name}' not found in input file.")
     return None
 
-def write_var(name, data):
+def write_var(var_name: str, data: xr.Dataset):
     """Create and write a 2D variable to the NetCDF output file."""
-    unit = spec_by_name[name]["unit"]
-    var = ncfile.createVariable(name, "f4", ("south_north", "west_east"))
+    unit = VARS[var_name]["unit"]
+    var = ncfile.createVariable(var_name, "f4", ("south_north", "west_east"))
     var[:, :] = data
     var.units = unit
 
@@ -112,19 +112,14 @@ def write_var(name, data):
 # Load variables
 # -------------------------------------------------------------------
 nc_in = Dataset(INPUT_FILE, mode='r')
-var_data = { spec["name"]: load_var(nc_in, spec) for spec in VARS }
-spec_by_name = { spec["name"]: spec for spec in VARS }
 
-lat = var_data["XLAT"]
-lon = var_data["XLONG"]
-# All non-coordinate fields (LANDMASK + optional ones)
-layer_data = {
-    spec["name"]: var_data[spec["name"]] for spec in VARS
-    if spec["name"] not in ("XLAT", "XLONG")
-}
+# Load all variables defined in VARS
+var_data = { name: load_var(nc_in, name) for name in VARS }
+lat, lon = var_data["XLAT"], var_data["XLONG"]
+layer_data = { name: var_data[name] for name in VARS if name not in ("XLAT", "XLONG") }
 
-# Report found (non-coordinate) fields
-found_layers = [ name for name in layer_data if layer_data[name] is not None ]
+# Report found (non-coordinate) layers
+found_layers = [name for name, arr in layer_data.items() if arr is not None]
 print(f"Input file: {INPUT_FILE}\nFound layers: {found_layers}\n")
 
 # -------------------------------------------------------------------

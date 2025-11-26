@@ -58,7 +58,12 @@ import zarr
 import xarray as xr
 import numpy as np
 from dask.diagnostics import ProgressBar
+
 from util import verify_dataset, dump_regrid_netcdf
+from tread import generate_tread_output
+from era5 import generate_era5_output
+from taiesm3p5 import generate_output as generate_taiesm3p5_output
+from taiesm100 import generate_output as generate_taiesm100_output
 
 DEBUG = False  # Set to True to enable debugging
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
@@ -107,66 +112,6 @@ def get_ref_grid(mode: str) -> Tuple[xr.Dataset, dict, dict]:
 
     return grid, grid_coords, layers
 
-def generate_hr_lr_outputs(
-    mode: str,
-    grid: xr.Dataset,
-    layers: dict,
-    start_date: str,
-    end_date: str,
-    ssp_level: str
-) -> Tuple[xr.Dataset, xr.Dataset]:
-    """
-    Generate paired high-resolution (HR) and low-resolution (LR) datasets
-    according to the selected processing mode.
-
-    Parameters
-    ----------
-    mode : str
-        Processing mode. Must be one of:
-            - "CWA": Use TReAD as high-res and ERA5 as low-res.
-            - "SSP": Use TaiESM 3.5 km as high-res and TaiESM 100 km as low-res.
-    grid : xr.Dataset
-        Reference grid used for spatial alignment and regridding.
-    layers : dict
-        Optional terrain-related fields ('ter', 'slope', 'aspect').
-        Required only in "CWA" mode; ignored for "SSP".
-    start_date : str
-        Start date in 'YYYYMMDD' format.
-    end_date : str
-        End date in 'YYYYMMDD' format.
-    ssp_level : str
-        SSP level used *only* in "SSP" mode (e.g., "historical", "ssp126", "ssp245").
-
-    Returns
-    -------
-    (xr.Dataset, xr.Dataset)
-        A tuple (hr_ds, lr_ds), where:
-        - hr_ds: High-resolution dataset for the selected mode.
-        - lr_ds: Low-resolution dataset for the selected mode.
-
-    Notes
-    -----
-    - In "CWA" mode, this function returns (TReAD_output, ERA5_output).
-    - In "SSP" mode, this function returns (TaiESM_3.5km_output, TaiESM_100km_output).
-    - Import statements are inside the mode branches to reduce unnecessary
-      dependency loading for modes that do not use those modules.
-    """
-    if mode == 'CWA':   # CWA
-        from tread import generate_tread_output
-        from era5 import generate_era5_output
-        return (
-            generate_tread_output(grid, start_date, end_date),
-            generate_era5_output(grid, layers, start_date, end_date)
-        )
-
-    # SSP
-    from taiesm3p5 import generate_output as generate_taiesm3p5_output
-    from taiesm100 import generate_output as generate_taiesm100_output
-    return (
-        generate_taiesm3p5_output(grid, start_date, end_date, ssp_level),
-        generate_taiesm100_output(grid, start_date, end_date, ssp_level)
-    )
-
 def generate_output_dataset(mode: str, start_date: str, end_date: str,
                             ssp_level: str) -> xr.Dataset:
     """
@@ -187,8 +132,12 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
     grid, grid_coords, layers = get_ref_grid(mode)
 
     # Generate high-res and low-res output datasets
-    hr_outputs, lr_outputs = \
-        generate_hr_lr_outputs(mode, grid, layers, start_date, end_date, ssp_level)
+    if mode == 'CWA':
+        hr_outputs = generate_tread_output(grid, start_date, end_date)
+        lr_outputs = generate_era5_output(grid, layers, start_date, end_date)
+    else: # SSP
+        hr_outputs = generate_taiesm3p5_output(grid, start_date, end_date, ssp_level)
+        lr_outputs = generate_taiesm100_output(grid, start_date, end_date, ssp_level)
 
     # Group outputs into dictionaries
     hr_data = {

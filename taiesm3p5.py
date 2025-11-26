@@ -142,7 +142,7 @@ def get_dataset(grid: xr.Dataset, start_date: str, end_date: str,
 
     # Crop & attach coordinates per REF grid, and rename variables.
     output_ds = (
-        # TODO - Remove hardcoded lat/lon once XLAT & XLONG are available
+        # FIXME - Remove hardcoded lat/lon once XLAT & XLONG are available
         surface_ds
             .isel(south_north=slice(0, 304), west_east=slice(4, 308))
             .assign_coords(
