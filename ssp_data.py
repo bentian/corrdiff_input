@@ -39,29 +39,11 @@ consistent channel description, making them suitable as paired input/target
 fields for CorrDiff training and evaluation under different SSP scenarios.
 """
 from typing import Tuple
-
-import numpy as np
 import xarray as xr
 
 from taiesm3p5 import get_taiesm3p5_dataset, get_taiesm3p5_channels
 from taiesm100 import get_taiesm100_dataset, get_taiesm100_channels
-from cwa_data import (
-    GRID_COORD_KEYS,
-
-    # CWB helpers
-    get_cwb,
-    get_cwb_variable,
-    get_cwb_pressure,
-    get_cwb_center,
-    get_cwb_scale,
-    get_cwb_valid,
-
-    # TaiESM 100km helpers
-    get_era5,
-    get_era5_center,
-    get_era5_scale,
-    get_era5_valid,
-)
+from cwa_data import GRID_COORD_KEYS, get_cwb_fields, get_era5_fields
 
 # -------------------------------------------------------------------
 # REF grid
@@ -181,24 +163,9 @@ def generate_taiesm3p5_output(
         get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)
     print(f"\nTaiESM_3.5km dataset [{ssp_level}] =>\n {taiesm3p5_out}")
 
-    # Prepare for generation
-    taiesm3p5_channels = get_taiesm3p5_channels()
-    cwb_channel = np.arange(len(taiesm3p5_channels))
-    cwb_pressure = get_cwb_pressure(cwb_channel, taiesm3p5_channels)
-    # Define variable names and create DataArray for cwb_variable.
-    cwb_var_names = np.array(list(taiesm3p5_out.data_vars.keys()), dtype="<U26")
-
-    # Generate output fields
-    cwb_variable = get_cwb_variable(cwb_var_names, cwb_pressure, taiesm3p5_channels)
-    cwb = get_cwb(taiesm3p5_out, cwb_var_names, cwb_channel, cwb_pressure, cwb_variable)
-    cwb_center = get_cwb_center(taiesm3p5_out, cwb_pressure, cwb_variable)
-    cwb_scale = get_cwb_scale(taiesm3p5_out, cwb_pressure, cwb_variable)
-    cwb_valid = get_cwb_valid(taiesm3p5_out, cwb)
-
-    return (
-        cwb, cwb_variable, cwb_center, cwb_scale,
-        cwb_valid, taiesm3p5_pre_regrid, taiesm3p5_out
-    )
+    # Generate cwb_* fields
+    cwb_fields = get_cwb_fields(taiesm3p5_out, get_taiesm3p5_channels())
+    return *cwb_fields, taiesm3p5_pre_regrid, taiesm3p5_out
 
 def generate_taiesm100_output(
     grid: xr.Dataset,
@@ -238,13 +205,6 @@ def generate_taiesm100_output(
         get_taiesm100_dataset(grid, start_date, end_date, ssp_level)
     print(f"\nTaiESM 100km dataset [{ssp_level}] =>\n {taisem100_out}")
 
-    # Generate output fields
-    era5 = get_era5(taisem100_out, get_taiesm100_channels())
-    era5_center = get_era5_center(era5)
-    era5_scale = get_era5_scale(era5)
-    era5_valid = get_era5_valid(era5)
-
-    return (
-        era5, era5_center, era5_scale,
-        era5_valid, taisem100_pre_regrid, taisem100_out
-    )
+    # Generate era5_* fields
+    era5_fields = get_era5_fields(taisem100_out, get_taiesm100_channels())
+    return *era5_fields, taisem100_pre_regrid, taisem100_out

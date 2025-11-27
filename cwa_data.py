@@ -145,24 +145,9 @@ def generate_tread_output(
     tread_pre_regrid, tread_out = get_tread_dataset(grid, start_date, end_date)
     print(f"\nTReAD dataset =>\n {tread_out}")
 
-    # Prepare for generation
-    tread_channels = get_tread_channels()
-    cwb_channel = np.arange(len(tread_channels))
-    cwb_pressure = get_cwb_pressure(cwb_channel, tread_channels)
-    # Define variable names and create DataArray for cwb_variable.
-    cwb_var_names = np.array(list(tread_out.data_vars.keys()), dtype="<U26")
-
-    # Generate output fields
-    cwb_variable = get_cwb_variable(cwb_var_names, cwb_pressure, tread_channels)
-    cwb = get_cwb(tread_out, cwb_var_names, cwb_channel, cwb_pressure, cwb_variable)
-    cwb_center = get_cwb_center(tread_out, cwb_pressure, cwb_variable)
-    cwb_scale = get_cwb_scale(tread_out, cwb_pressure, cwb_variable)
-    cwb_valid = get_cwb_valid(tread_out, cwb)
-
-    return (
-        cwb, cwb_variable, cwb_center, cwb_scale,
-        cwb_valid, tread_pre_regrid, tread_out
-    )
+    # Generate cwb_* fields
+    cwb_fields = get_cwb_fields(tread_out, get_tread_channels())
+    return *cwb_fields, tread_pre_regrid, tread_out
 
 def generate_era5_output(
     grid: xr.Dataset,
@@ -201,20 +186,78 @@ def generate_era5_output(
     era5_pre_regrid, era5_out = get_era5_dataset(grid, terrain, start_date, end_date)
     print(f"\nERA5 dataset =>\n {era5_out}")
 
-    # Generate output fields
-    era5 = get_era5(era5_out, get_era5_channels())
-    era5_center = get_era5_center(era5)
-    era5_scale = get_era5_scale(era5)
-    era5_valid = get_era5_valid(era5)
-
-    return (
-        era5, era5_center, era5_scale,
-        era5_valid, era5_pre_regrid, era5_out
-    )
+    # Generate era5_* fields
+    era5_fields = get_era5_fields(era5_out, get_era5_channels())
+    return *era5_fields, era5_pre_regrid, era5_out
 
 # -------------------------------------------------------------------
 # High-res fields (cwb_*)
 # -------------------------------------------------------------------
+
+def get_cwb_fields(
+    highres_ds: xr.Dataset,
+    channels: Dict[str, str]
+) -> Tuple[
+    xr.DataArray,  # cwb
+    xr.DataArray,  # cwb_variable
+    xr.DataArray,  # cwb_center
+    xr.DataArray,  # cwb_scale
+    xr.DataArray,  # cwb_valid
+]:
+    """
+    Compute all CWB diagnostic fields (stacked tensor, variable metadata, mean,
+    scale, and validity mask) from a high-resolution dataset.
+
+    This function assembles the full set of CorrDiff-ready high-resolution fields:
+    - The stacked CWB tensor (`cwb`)
+    - Per-channel variable names (`cwb_variable`)
+    - Per-channel mean offsets (`cwb_center`)
+    - Per-channel standard deviations (`cwb_scale`)
+    - A time-validity mask (`cwb_valid`)
+
+    Parameters
+    ----------
+    highres_ds : xr.Dataset
+        The high-resolution dataset after spatial regridding, where each data
+        variable represents one physical channel (e.g., temperature, wind).
+    channels : Dict[str, str]
+        Mapping of channel names to their standardized output names. The number
+        of channels determines the length of the CWB tensors.
+
+    Returns
+    -------
+    tuple
+        A tuple of five xarray.DataArray objects:
+        - **cwb** : Stacked tensor containing all high-resolution variables
+                    with dimensions (time, cwb_channel, south_north, west_east).
+        - **cwb_variable** : Variable names associated with each stacked channel.
+        - **cwb_center** : Mean value per channel over time and space.
+        - **cwb_scale** : Standard deviation per channel.
+        - **cwb_valid** : Boolean validity mask for each time step.
+
+    Notes
+    -----
+    - The function assumes `highres_ds` variables are already renamed according
+      to `channels`.
+    - Channel ordering follows the order of keys in `channels`.
+    - This function acts as a thin wrapper assembling all intermediate steps
+      (variable extraction, stacking, centering, scaling, validity).
+    """
+    # Prepare for generation
+    cwb_channel = np.arange(len(channels))
+    cwb_pressure = get_cwb_pressure(cwb_channel, channels)
+    # Define variable names and create DataArray for cwb_variable.
+    cwb_var_names = np.array(list(highres_ds.data_vars.keys()), dtype="<U26")
+
+    # Generate output fields
+    cwb_variable = get_cwb_variable(cwb_var_names, cwb_pressure, channels)
+    cwb = get_cwb(highres_ds, cwb_var_names, cwb_channel, cwb_pressure, cwb_variable)
+    return (
+        cwb, cwb_variable,
+        get_cwb_center(highres_ds, cwb_pressure, cwb_variable),
+        get_cwb_scale(highres_ds, cwb_pressure, cwb_variable),
+        get_cwb_valid(highres_ds, cwb)
+    )
 
 def get_cwb_pressure(cwb_channel: np.ndarray, channels: Dict[str, str]) -> xr.DataArray:
     """
@@ -388,6 +431,61 @@ def get_cwb_valid(highres_ds: xr.Dataset, cwb: xr.DataArray) -> xr.DataArray:
 # -------------------------------------------------------------------
 # Low-res fields (era5_*)
 # -------------------------------------------------------------------
+
+def get_era5_fields(
+    lowres_ds: xr.Dataset,
+    channels: dict
+) -> Tuple[
+    xr.DataArray,  # era5
+    xr.DataArray,  # era5_center
+    xr.DataArray,  # era5_scale
+    xr.DataArray,  # era5_valid
+]:
+    """
+    Compute all ERA5 diagnostic fields (stacked tensor, mean, scale, and
+    validity mask) from a low-resolution dataset.
+
+    This function assembles the full set of CorrDiff-ready ERA5 fields:
+    - The stacked ERA5 tensor (`era5`)
+    - Per-channel mean offsets (`era5_center`)
+    - Per-channel standard deviations (`era5_scale`)
+    - A time–channel validity mask (`era5_valid`)
+
+    Parameters
+    ----------
+    lowres_ds : xr.Dataset
+        The low resolution dataset after spatial regridding, containing the atmospheric,
+        pressure-level, and surface variables needed for model conditioning.
+    channels : dict
+        List or mapping defining the ERA5 channels, including variable names
+        and optional pressure levels. The length determines the output channel
+        dimension.
+
+    Returns
+    -------
+    tuple
+        A tuple containing four xarray.DataArray objects:
+        - **era5** : Stacked ERA5 tensor with dimensions
+                     (time, era5_channel, south_north, west_east).
+        - **era5_center** : Mean value per ERA5 channel.
+        - **era5_scale** : Standard deviation per ERA5 channel.
+        - **era5_valid** : Boolean validity mask for each time / channel entry.
+
+    Notes
+    -----
+    - The function assumes variables in `lowres_ds` match the specifications
+      given in `channels`.
+    - Channel ordering follows the order in the `channels` list.
+    - This helper function centralizes the creation of ERA5 model inputs,
+      ensuring consistent normalization and metadata handling.
+    """
+    era5 = get_era5(lowres_ds, channels)
+    return (
+        era5,
+        get_era5_center(era5),
+        get_era5_scale(era5),
+        get_era5_valid(era5)
+    )
 
 def get_era5(lowres_ds: xr.Dataset, channels: dict) -> xr.DataArray:
     """
