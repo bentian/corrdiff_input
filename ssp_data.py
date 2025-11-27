@@ -1,42 +1,44 @@
 """
-Pipeline for generating CorrDiff-ready TaiESM high-res (3.5km) and low-res
-(100km) datasets on a common reference grid.
+TaiESM SSP processing utilities for CorrDiff training inputs.
 
-This module provides:
+This module generates CorrDiff-ready high-resolution and low-resolution tensors
+from the TaiESM climate model under a specified Shared Socioeconomic Pathway
+(SSP) scenario. It supports two model resolutions:
 
-- Reference grid handling
-  - `get_ref_grid()` loads the fixed 304*304 WRF reference grid and returns:
-    - a lightweight grid dataset with latitude/longitude (lat, lon),
-    - the original grid coordinate variables (e.g. XLAT, XLONG).
+    • TaiESM 3.5 km   (high-resolution, WRF-downscaled)
+    • TaiESM 100 km   (low-resolution, native TaiESM atmospheric fields)
 
-- TaiESM 3.5 km (high-resolution) processing
-  - `generate_taiesm3p5_output()`:
-    - reads TaiESM 3.5km data for a given date range and SSP level,
-    - regrids it to the reference grid,
-    - stacks selected variables into a CorrDiff-style tensor,
-    - computes per-channel metadata:
-      - `cwb_variable` (variable names),
-      - `cwb_pressure` (pressure levels, if applicable),
-      - `cwb_center` (mean),
-      - `cwb_scale` (standard deviation),
-      - `cwb_valid` (valid time steps).
+Major features provided by this module
+--------------------------------------
 
-- TaiESM 100 km (low-resolution) processing
-  - `generate_taiesm100_output()`:
-    - reads TaiESM 100km data for the same period and SSP level,
-    - regrids it to the same reference grid,
-    - stacks selected variables into a low-res tensor (`era5`-style),
-    - computes per-channel center, scale, and validity masks.
+1. **Reference Grid Loading**
+   - `get_ref_grid()` loads a WRF-style reference grid (`REF_GRID_NC`)
+     and extracts:
+       • latitude / longitude fields  
+       • grid coordinate metadata (`GRID_COORD_KEYS`)  
+     This ensures the 3.5 km and 100 km datasets are aligned to the same
+     spatial domain and indexing.
 
-- Joint output
-  - `generate_output_dataset()` ties everything together, returning:
-    - the processed TaiESM 3.5km outputs,
-    - the processed TaiESM 100km outputs,
-    - the reference grid coordinates.
+2. **Dataset Generation**
+   - `generate_output_dataset(start_date, end_date, ssp_level)` runs the
+     complete processing pipeline for both TaiESM datasets:
+       • Loads model data for the specified date range  
+       • Crops / regrids to the reference grid  
+       • Converts variables into CorrDiff-ready stacked tensors  
+       • Computes per-channel diagnostics (mean, std, validity)
 
-The resulting high-res and low-res products are spatially aligned and share a
-consistent channel description, making them suitable as paired input/target
-fields for CorrDiff training and evaluation under different SSP scenarios.
+3. **Shared CorrDiff-ready Outputs**
+   - High-resolution TaiESM 3.5 km fields use the CWB-format utilities
+     from `cwa_data` (`get_cwb_fields`).
+   - Low-resolution TaiESM 100 km fields use the ERA5-format utilities
+     (`get_era5_fields`), since both share the same stacked-tensor structure.
+
+Returned objects follow the standard CorrDiff convention:
+    (tensor, variable_names, center, scale, valid_mask, pre_regrid_ds, post_regrid_ds)
+
+This module acts as the SSP counterpart to the TReAD/ERA5 `cwa_data` pipeline:
+it ensures all TaiESM inputs (both high-res and low-res) can be produced
+consistently and merged into CorrDiff Zarr datasets.
 """
 from typing import Tuple
 import xarray as xr
@@ -100,111 +102,31 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str
 
     Returns:
         Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
-            - taiesm3p5_output (xr.Dataset): An xarray Dataset containing the
-                                             generated TaiESM 3.5km output data.
-            - taiesm100_output (xr.Dataset): An xarray Dataset containing the
-                                             generated TaiESM 100km output data.
+            - taiesm3p5_outputs (xr.Dataset): An xarray Dataset containing the
+                                              generated TaiESM 3.5km output data.
+            - taiesm100_outputs (xr.Dataset): An xarray Dataset containing the
+                                              generated TaiESM 100km output data.
             - grid_coords (xr.Dataset): An xarray Dataset containing the
                                         coordinates of the reference grid.
     """
     grid, grid_coords = get_ref_grid()
-    return (
-        generate_taiesm3p5_output(grid, start_date, end_date, ssp_level),
-        generate_taiesm100_output(grid, start_date, end_date, ssp_level),
-        grid_coords
-    )
 
-def generate_taiesm3p5_output(
-    grid: xr.Dataset,
-    start_date: str,
-    end_date: str,
-    ssp_level: str = ''
-) -> Tuple[
-    xr.DataArray,  # TaiESM 3.5km dataarray
-    xr.DataArray,  # TaiESM 3.5km variable
-    xr.DataArray,  # TaiESM 3.5km center
-    xr.DataArray,  # TaiESM 3.5km scale
-    xr.DataArray,  # TaiESM 3.5km valid
-    xr.Dataset,    # TaiESM 3.5km pre-regrid dataset
-    xr.Dataset     # TaiESM 3.5km post-regrid dataset
-]:
-    """
-    Generate processed TaiESM 3.5km outputs and corresponding CWB diagnostic
-    DataArrays for a specified date range.
-
-    Parameters
-    ----------
-    grid (xr.Dataset): Reference grid defining the target spatial domain for regridding.
-    start_date (str): Start date in 'YYYYMMDD' format (inclusive).
-    end_date (str): End date in 'YYYYMMDD' format (inclusive).
-    ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
-                                (e.g., 'historical', 'ssp126', 'ssp245').
-
-    Returns
-    -------
-    tuple
-        A tuple containing:
-        - xr.DataArray: Final processed TaiESM 3.5km tensor used by CorrDiff.
-        - xr.DataArray: Names of variables included in the TaiESM 3.5km tensor.
-        - xr.DataArray: Per-variable mean values (centering).
-        - xr.DataArray: Per-variable standard deviations (scaling).
-        - xr.DataArray: Boolean mask indicating valid time steps.
-        - xr.Dataset: Native TaiESM 3.5km dataset before spatial regridding.
-        - xr.Dataset: TaiESM 3.5km dataset regridded to the target domain.
-
-    Notes
-    -----
-    This function encapsulates the full processing pipeline:
-    loading TaiESM data, centering/scaling, computing validity flags,
-    and regridding to the specified reference grid.
-    """
-    # Extract TaiESM 3.5km data from file.
+    # TaiESM 3.5km
     taiesm3p5_pre_regrid, taiesm3p5_out = \
         get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)
     print(f"\nTaiESM_3.5km dataset [{ssp_level}] =>\n {taiesm3p5_out}")
+    taiesm3p5_outputs = (
+        *get_cwb_fields(taiesm3p5_out, get_taiesm3p5_channels()),
+        taiesm3p5_pre_regrid, taiesm3p5_out
+    )
 
-    # Generate cwb_* fields
-    cwb_fields = get_cwb_fields(taiesm3p5_out, get_taiesm3p5_channels())
-    return (*cwb_fields, taiesm3p5_pre_regrid, taiesm3p5_out)
-
-def generate_taiesm100_output(
-    grid: xr.Dataset,
-    start_date: str,
-    end_date: str,
-    ssp_level: str = ''
-) -> Tuple[
-    xr.DataArray,  # TaiESM 100km dataarray
-    xr.DataArray,  # TaiESM 100km variable
-    xr.DataArray,  # TaiESM 100km center
-    xr.DataArray,  # TaiESM 100km scale
-    xr.DataArray,  # TaiESM 100km valid
-    xr.Dataset,    # TaiESM 100km pre-regrid dataset
-    xr.Dataset     # TaiESM 100km post-regrid dataset
-]:
-    """
-    Processes TaiESM 100km data files to generate consolidated outputs, including
-    the TaiESM 100km DataArray, its mean (center), standard deviation (scale),
-    validity mask, and intermediate datasets.
-
-    Parameters:
-        grid (xarray.Dataset): The reference grid dataset for regridding.
-        start_date (str or datetime-like): The start date of the desired data range.
-        end_date (str or datetime-like): The end date of the desired data range.
-
-    Returns:
-        tuple:
-            - xarray.DataArray: The consolidated TaiESM 100km DataArray with stacked variables.
-            - xarray.DataArray: The mean values for each TaiESM 100km channel.
-            - xarray.DataArray: The standard deviation values for each TaiESM 100km channel.
-            - xarray.DataArray: The validity mask for each TaiESM 100km channel over time.
-            - xarray.Dataset: The TaiESM 100km dataset before regridding.
-            - xarray.Dataset: The TaiESM 100km dataset after regridding.
-    """
-    # Extract TaiESM 100km data from file.
+    # TaiESM 100km
     taisem100_pre_regrid, taisem100_out = \
         get_taiesm100_dataset(grid, start_date, end_date, ssp_level)
     print(f"\nTaiESM 100km dataset [{ssp_level}] =>\n {taisem100_out}")
+    taiesm100_outputs = (
+        *get_era5_fields(taisem100_out, get_taiesm100_channels()),
+        taisem100_pre_regrid, taisem100_out
+    )
 
-    # Generate era5_* fields
-    era5_fields = get_era5_fields(taisem100_out, get_taiesm100_channels())
-    return (*era5_fields, taisem100_pre_regrid, taisem100_out)
+    return taiesm3p5_outputs, taiesm100_outputs, grid_coords
