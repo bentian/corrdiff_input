@@ -4,7 +4,7 @@ from typing import List, Tuple
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing
+from util import is_local_testing, verify_lowres_sfc_format, verify_lowres_prs_format
 
 TAIESM_100_CHANNELS = [
     {'name': 'pr', 'variable': 'precipitation'},
@@ -146,6 +146,10 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
     prs_data = xr.open_mfdataset(prs_paths, combine="by_coords")
     print(f'\nprs_data => {prs_data}')
+
+    # for var_name in (ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch):
+    #     verify_lowres_prs_format(prs_data, var_name)
+
     return (
         prs_data.assign_coords(plev=prs_data.plev / 100)    # Convert Pa to hPa
                 .rename({"plev": "level"})                  # Rename coord
@@ -172,6 +176,8 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
     sfc_data = xr.open_mfdataset(sfc_paths, combine='by_coords').sel(time=duration)
     print(f'\nsfc_data => {sfc_data}')
+
+    # verify_lowres_sfc_format(sfc_data)
 
     sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
     sfc_data['pr'].attrs['units'] = 'mm/day'
