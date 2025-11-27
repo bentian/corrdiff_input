@@ -1,3 +1,29 @@
+"""
+Helpers for loading and preprocessing TaiESM 100 km predictor data.
+
+This module provides utilities to:
+
+- Define the TaiESM 100 km channel configuration (`TAIESM_100_CHANNELS`) used
+  when building CorrDiff low-resolution inputs.
+- Resolve data directories in a way that is aware of the execution environment
+  (local testing vs. BIG server) via `get_data_dir`.
+- Construct file paths for TaiESM 100 km surface (SFC) and pressure-level (PRS)
+  NetCDF files over a given date range (`get_sfc_paths`, `get_prs_paths`).
+- Load and subset TaiESM 100 km SFC and PRS data for a specified period
+  (`get_surface_data`, `get_pressure_level_data`), including:
+    * Converting TaiESM time coordinates (cftime no-leap) into NumPy
+      `datetime64[ns]`.
+    * Normalizing coordinates and variable names into an ERA5-like layout.
+    * Converting precipitation units to mm/day.
+- Assemble a merged TaiESM 100 km dataset aligned to a reference grid domain
+  (`get_taiesm100_dataset`) suitable for downstream regridding and CorrDiff
+  conditioning.
+
+In short, this module is the TaiESM-100 km analogue of the ERA5 ingestion
+pipeline: it standardizes file paths, variable naming, coordinate systems, and
+basic units so that TaiESM 100 km data can be processed alongside ERA5 with
+minimal special-case logic.
+"""
 from pathlib import Path
 from typing import List, Tuple
 
