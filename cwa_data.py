@@ -147,7 +147,7 @@ def generate_tread_output(
 
     # Generate cwb_* fields
     cwb_fields = get_cwb_fields(tread_out, get_tread_channels())
-    return *cwb_fields, tread_pre_regrid, tread_out
+    return (*cwb_fields, tread_pre_regrid, tread_out)
 
 def generate_era5_output(
     grid: xr.Dataset,
@@ -188,7 +188,7 @@ def generate_era5_output(
 
     # Generate era5_* fields
     era5_fields = get_era5_fields(era5_out, get_era5_channels())
-    return *era5_fields, era5_pre_regrid, era5_out
+    return (*era5_fields, era5_pre_regrid, era5_out)
 
 # -------------------------------------------------------------------
 # High-res fields (cwb_*)

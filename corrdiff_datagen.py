@@ -78,45 +78,36 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
     )
 
     # Group outputs into dictionaries
-    hr_data = {
-        "cwb": hr_outputs[0],
-        "cwb_variable": hr_outputs[1],
-        "cwb_center": hr_outputs[2],
-        "cwb_scale": hr_outputs[3],
-        "cwb_valid": hr_outputs[4],
-        "pre_regrid": hr_outputs[5],
-        "post_regrid": hr_outputs[6],
-    }
-    lr_data = {
-        "era5": lr_outputs[0],
-        "era5_center": lr_outputs[1],
-        "era5_scale": lr_outputs[2],
-        "era5_valid": lr_outputs[3],
-        "pre_regrid": lr_outputs[4],
-        "post_regrid": lr_outputs[5],
-    }
+    hr_data = dict(zip(
+        ["cwb", "cwb_variable", "cwb_center", "cwb_scale", "cwb_valid",
+         "pre_regrid", "post_regrid"],
+        hr_outputs,
+    ))
+    lr_data = dict(zip(
+        ["era5", "era5_center", "era5_scale", "era5_valid",
+         "pre_regrid", "post_regrid"],
+        lr_outputs,
+    ))
 
     # Create the output dataset
     out = xr.Dataset(
+        data_vars={
+            "cwb":         hr_data["cwb"],
+            "cwb_center":  hr_data["cwb_center"],
+            "cwb_scale":   hr_data["cwb_scale"],
+            "cwb_valid":   hr_data["cwb_valid"],
+            "era5":        lr_data["era5"],
+            "era5_center": lr_data["era5_center"],
+            "era5_valid":  lr_data["era5_valid"],
+        },
         coords={
             **{key: grid_coords[key] for key in cwa.GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2025-02-08 16:00:00", "ns"),  # Placeholder for timestamp
+            "XTIME": np.datetime64("2025-11-27 10:00:00", "ns"),  # Placeholder for timestamp
             "time": hr_data["cwb"].time,
             "cwb_variable": hr_data["cwb_variable"],
             "era5_scale": ("era5_channel", lr_data["era5_scale"].data),
-        }
-    )
-
-    # Assign CWB and ERA5 data variables
-    out = out.assign({
-        "cwb": hr_data["cwb"],
-        "cwb_center": hr_data["cwb_center"],
-        "cwb_scale": hr_data["cwb_scale"],
-        "cwb_valid": hr_data["cwb_valid"],
-        "era5": lr_data["era5"],
-        "era5_center": lr_data["era5_center"],
-        "era5_valid": lr_data["era5_valid"],
-    }).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
+        },
+    ).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
 
     # [DEBUG] Dump data pre- & post-regridding, and print output data slices
     if DEBUG:

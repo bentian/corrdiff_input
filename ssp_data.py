@@ -165,7 +165,7 @@ def generate_taiesm3p5_output(
 
     # Generate cwb_* fields
     cwb_fields = get_cwb_fields(taiesm3p5_out, get_taiesm3p5_channels())
-    return *cwb_fields, taiesm3p5_pre_regrid, taiesm3p5_out
+    return (*cwb_fields, taiesm3p5_pre_regrid, taiesm3p5_out)
 
 def generate_taiesm100_output(
     grid: xr.Dataset,
@@ -207,4 +207,4 @@ def generate_taiesm100_output(
 
     # Generate era5_* fields
     era5_fields = get_era5_fields(taisem100_out, get_taiesm100_channels())
-    return *era5_fields, taisem100_pre_regrid, taisem100_out
+    return (*era5_fields, taisem100_pre_regrid, taisem100_out)
