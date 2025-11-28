@@ -30,7 +30,7 @@ from typing import List, Tuple
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing
+from util import is_local_testing, regrid_dataset
 
 TAIESM_100_CHANNELS = [
     {'name': 'pr', 'variable': 'precipitation'},
@@ -171,13 +171,7 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
 
     # Read data from file
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
-    prs_data = xr.open_mfdataset(prs_paths, combine="by_coords")
-    print(f'\nprs_data => {prs_data}')
-
-    # Try to revise format to match ERA5
-    prs_data = to_era5_like_format(prs_data)
-    print(f'\n=== NEW prs_data => {prs_data}')
-
+    prs_data = convert_to_era5_format(xr.open_mfdataset(prs_paths, combine="by_coords"))
     return prs_data.sel(level=pressure_levels, time=duration)
 
 def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
@@ -199,17 +193,12 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
 
     # Read data from file
     sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
-    sfc_data = xr.open_mfdataset(sfc_paths, combine='by_coords')
-    print(f'\nsfc_data => {sfc_data}')
-
-    # Try to revise format to match ERA5
-    sfc_data = to_era5_like_format(sfc_data.sel(time=duration))
-    print(f'\n=== NEW sfc_data => {sfc_data}')
+    sfc_data = convert_to_era5_format(xr.open_mfdataset(sfc_paths, combine='by_coords'))
 
     sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
     sfc_data['pr'].attrs['units'] = 'mm/day'
 
-    return sfc_data
+    return sfc_data.sel(time=duration)
 
 def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
                           ssp_level: str) -> Tuple[xr.Dataset, xr.Dataset]:
@@ -258,12 +247,12 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         longitude=slice(lon.min().item(), lon.max().item())
     ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
 
-    # TODO - enlarge cropped_with_coords to output_ds
-    output_ds = cropped_with_coords
+    # FIXME - enlarge cropped_with_coords to output_ds
+    output_ds = regrid_dataset(cropped_with_coords, grid)
 
     return cropped_with_coords, output_ds
 
-def to_era5_like_format(ds: xr.Dataset) -> xr.Dataset:
+def convert_to_era5_format(ds: xr.Dataset) -> xr.Dataset:
     """
     Convert a TaiESM100 SFC/PRS-style dataset into an ERA5-like format.
 
