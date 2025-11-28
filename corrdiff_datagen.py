@@ -1,12 +1,13 @@
 """
 CorrDiff Dataset Generation and Zarr Storage.
 
-This script processes TReAD and ERA5 datasets to generate a consolidated dataset,
-verify its integrity, and save it in Zarr format. It integrates multiple data processing
-modules and performs spatial regridding, variable aggregation, and data compression.
+This script processes low-resolution (low-res) and high-resolution (high-res) datasets
+to generate a consolidated dataset, verify its integrity, and save it in Zarr format.
+It integrates multiple data processing modules and performs spatial regridding,
+variable aggregation, and data compression.
 
 Features:
-- Processes TReAD and ERA5 datasets for a specified date range.
+- Processes low-res and high-res datasets for a specified date range.
 - Regrids datasets to a reference grid.
 - Generates a consolidated dataset with key variables and metrics:
   - Center (mean)
@@ -16,11 +17,11 @@ Features:
 - Saves the dataset in compressed Zarr format.
 
 Functions:
-- `generate_output_dataset`: Combines processed TReAD and ERA5 data into a consolidated dataset.
+- `generate_output_dataset`: Combines processed low-res and high-res data into
+                             a consolidated dataset.
 - `write_to_zarr`: Writes the consolidated dataset to Zarr format with compression.
-- `get_data_dir`: Determines the paths for TReAD and ERA5 datasets based on the environment.
 - `get_ref_grid`: Loads the reference grid dataset and extracts the required coordinates
-   and terrain data.
+   & optionally terrain data.
 - `generate_corrdiff_zarr`: Orchestrates the generation, verification, and saving of the dataset.
 - `main`: Parses command-line arguments and triggers the dataset generation process.
 
@@ -31,8 +32,8 @@ Dependencies:
 - `numpy`: For numerical operations.
 - `dask.diagnostics.ProgressBar`: For monitoring progress during dataset writing.
 - Modules:
-  - `tread`: For TReAD dataset processing.
-  - `era5`: For ERA5 dataset processing.
+  - `cwa_data`: CWA mode related functions.
+  - `ssp_data`: SSP mode related functions.
   - `util`: For utility functions like dataset verification and regridding.
 
 Usage:
@@ -40,129 +41,82 @@ Usage:
 
     Example:
         python corrdiff_datagen.py 20180101 20180103
-
-Notes:
-- Ensure that the `REF_GRID_NC` file exists and contains valid reference grid data.
-- The script handles both local and remote environments based on the presence of specific folders.
-
 """
 import sys
-from typing import Tuple
 
 import zarr
 import xarray as xr
 import numpy as np
 from dask.diagnostics import ProgressBar
 
-from tread import generate_tread_output
-from era5 import generate_era5_output
-from util import is_local_testing, verify_dataset, dump_regrid_netcdf
+import cwa_data as cwa
+import ssp_data as ssp
+from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
-REF_GRID_NC = "./ref_grid/wrf_208x208_grid_coords.nc"
-GRID_COORD_KEYS = ["XLAT", "XLONG"]
 
-def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
+def generate_output_dataset(mode: str, start_date: str, end_date: str,
+                            ssp_level: str) -> xr.Dataset:
     """
-    Load the reference grid dataset and extract its coordinates and terrain-related variables.
-
-    This function reads a predefined reference grid NetCDF file and extracts:
-    - A dataset containing latitude (`lat`) and longitude (`lon`) grids.
-    - A dictionary of coordinate arrays specified by `GRID_COORD_KEYS`.
-    - A dictionary of terrain-related variables (`TER`, `SLOPE`, `ASPECT`) for use in
-      regridding and terrain processing.
-
-    Returns:
-        tuple:
-            - grid (xarray.Dataset): A dataset containing the latitude ('lat') and
-              longitude ('lon') grids for spatial alignment.
-            - grid_coords (dict): A dictionary of extracted coordinate arrays defined
-              by `GRID_COORD_KEYS` for downstream processing.
-            - terrain_layers (dict): A dictionary containing terrain-related variables
-              ('ter', 'slope', 'aspect') from the reference grid.
-
-    Notes:
-        - The reference grid file path is defined by the global constant `REF_GRID_NC`.
-        - The coordinate keys to extract are defined in `GRID_COORD_KEYS`.
-        - The terrain-related variables are returned as a dictionary with lowercase keys
-          for consistency in downstream processing.
-    """
-    ref = xr.open_dataset(REF_GRID_NC, engine='netcdf4')
-    grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
-    grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
-
-    return grid, grid_coords, {key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"]}
-
-def generate_output_dataset(tread_dir: str, era5_dir: str,
-                            start_date: str, end_date: str) -> xr.Dataset:
-    """
-    Generates a consolidated output dataset by processing TReAD and ERA5 data fields.
+    Generates a consolidated output dataset by processing low-res and high-res data fields.
 
     Parameters:
-        tread_dir (str): Path to the directory containing the TReAD dataset.
-        era5_dir (str): Path to the directory containing ERA5 datasets.
+        mode (str): Processing mode, either 'CWA' or 'SSP'.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
+        ssp_level (str): SSP level used to select the TaiESM dataset directory
+                            (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
-        xr.Dataset: A dataset containing consolidated and processed TReAD and ERA5 data fields.
+        xr.Dataset: A dataset containing consolidated and processed
+                    low-res and high-res data fields.
     """
-    # Get REF grid
-    grid, grid_coords, layers = get_ref_grid()
-
-    # Generate CWB (TReAD) and ERA5 output fields
-    tread_outputs = generate_tread_output(tread_dir, grid, start_date, end_date)
-    era5_outputs = generate_era5_output(era5_dir, grid, layers, start_date, end_date)
+    # Generate high-res and low-res output datasets
+    hr_outputs, lr_outputs, grid_coords = (
+        cwa.generate_output_dataset(start_date, end_date) if mode == "CWA"
+        else ssp.generate_output_dataset(start_date, end_date, ssp_level)
+    )
 
     # Group outputs into dictionaries
-    tread_data = {
-        "cwb": tread_outputs[0],
-        "cwb_variable": tread_outputs[1],
-        "cwb_center": tread_outputs[2],
-        "cwb_scale": tread_outputs[3],
-        "cwb_valid": tread_outputs[4],
-        "pre_regrid": tread_outputs[5],
-        "post_regrid": tread_outputs[6],
-    }
-    era5_data = {
-        "era5": era5_outputs[0],
-        "era5_center": era5_outputs[1],
-        "era5_scale": era5_outputs[2],
-        "era5_valid": era5_outputs[3],
-        "pre_regrid": era5_outputs[4],
-        "post_regrid": era5_outputs[5],
-    }
+    hr_data = dict(zip(
+        ["cwb", "cwb_variable", "cwb_center", "cwb_scale", "cwb_valid",
+         "pre_regrid", "post_regrid"],
+        hr_outputs,
+    ))
+    lr_data = dict(zip(
+        ["era5", "era5_center", "era5_scale", "era5_valid",
+         "pre_regrid", "post_regrid"],
+        lr_outputs,
+    ))
 
     # Create the output dataset
     out = xr.Dataset(
+        data_vars={
+            "cwb":         hr_data["cwb"],
+            "cwb_center":  hr_data["cwb_center"],
+            "cwb_scale":   hr_data["cwb_scale"],
+            "cwb_valid":   hr_data["cwb_valid"],
+            "era5":        lr_data["era5"],
+            "era5_center": lr_data["era5_center"],
+            "era5_valid":  lr_data["era5_valid"],
+        },
         coords={
-            **{key: grid_coords[key] for key in GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2025-02-08 16:00:00", "ns"),  # Placeholder for timestamp
-            "time": tread_data["cwb"].time,
-            "cwb_variable": tread_data["cwb_variable"],
-            "era5_scale": ("era5_channel", era5_data["era5_scale"].data),
-        }
-    )
-
-    # Assign CWB and ERA5 data variables
-    out = out.assign({
-        "cwb": tread_data["cwb"],
-        "cwb_center": tread_data["cwb_center"],
-        "cwb_scale": tread_data["cwb_scale"],
-        "cwb_valid": tread_data["cwb_valid"],
-        "era5": era5_data["era5"],
-        "era5_center": era5_data["era5_center"],
-        "era5_valid": era5_data["era5_valid"],
-    }).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
+            **{key: grid_coords[key] for key in cwa.GRID_COORD_KEYS},
+            "XTIME": np.datetime64("2025-11-27 10:00:00", "ns"),  # Placeholder for timestamp
+            "time": hr_data["cwb"].time,
+            "cwb_variable": hr_data["cwb_variable"],
+            "era5_scale": ("era5_channel", lr_data["era5_scale"].data),
+        },
+    ).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
 
     # [DEBUG] Dump data pre- & post-regridding, and print output data slices
     if DEBUG:
         dump_regrid_netcdf(
             f"{start_date}_{end_date}",
-            tread_data["pre_regrid"],
-            tread_data["post_regrid"],
-            era5_data["pre_regrid"],
-            era5_data["post_regrid"],
+            hr_data["pre_regrid"],
+            hr_data["post_regrid"],
+            lr_data["pre_regrid"],
+            lr_data["post_regrid"],
         )
 
     return out
@@ -187,42 +141,23 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
     print(f"Data successfully saved to [{out_path}]")
 
-def get_data_dir() -> Tuple[str, str]:
+def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level: str = '') -> None:
     """
-    Determines the base directories for TReAD and ERA5 datasets based on the execution environment.
-
-    Returns:
-        tuple:
-            - str: The path to the TReAD data directory.
-            - str: The path to the ERA5 data directory.
-
-    Notes:
-        - In local testing environments (determined by `is_local_testing()`), the paths are set to
-          `./data/tread` and `./data/era5`.
-        - In BIG server environments, the paths point to remote directories:
-          `/lfs/archive/TCCIP_data/TReAD/SFC/hr` for TReAD and
-          `/lfs/archive/Reanalysis/ERA5` for ERA5.
-    """
-    if is_local_testing():
-        return "./data/tread", "./data/era5"
-    return "/lfs/archive/TCCIP_data/TReAD/SFC/hr", "/lfs/archive/Reanalysis/ERA5"
-
-def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
-    """
-    Generates and verifies a consolidated dataset for TReAD and ERA5 data,
+    Generates and verifies a consolidated dataset for low-res and high-res data,
     then writes it to a Zarr file format.
 
     Parameters:
+        mode (str): Processing mode, either 'CWA' or 'SSP'.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
+        ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
+                                    (e.g., 'historical', 'ssp126', 'ssp245').
 
     Returns:
         None
     """
-    tread_dir, era5_dir = get_data_dir()
-
     # Generate the output dataset.
-    out = generate_output_dataset(tread_dir, era5_dir, start_date, end_date)
+    out = generate_output_dataset(mode, start_date, end_date, ssp_level)
     print(f"\nZARR dataset =>\n {out}")
 
     # Verify the output dataset.
@@ -232,28 +167,47 @@ def generate_corrdiff_zarr(start_date: str, end_date: str) -> None:
         return
 
     # Write the output dataset to ZARR.
-    write_to_zarr(f"corrdiff_dataset_{start_date}_{end_date}.zarr", out)
+    write_to_zarr(f"corrdiff_{ssp_level}dataset_{start_date}_{end_date}.zarr", out)
+
+def validate_ssp_level(raw: str) -> str:
+    """
+    Validate and normalize an SSP suffix string.
+    """
+    allowed_ssp_levels = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
+    if raw not in allowed_ssp_levels:
+        raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
+
+    return raw
 
 def main():
     """
     Main entry point for the script. Parses command-line arguments to generate
     a Zarr dataset for a specified date range.
 
-    Command-line Usage:
-        python corrdiff_datagen.py <start_date> <end_date>
+     Usage
+    -----
+        CWA / TReAD+ERA5 mode:
+            python corrdiff_datagen.py <start_date> <end_date>
 
-    Example:
+        SSP / TaiESM mode:
+            python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
+
+    Examples
+    --------
         python corrdiff_datagen.py 20180101 20180103
-
-    Returns:
-        None
+        python corrdiff_datagen.py 20180101 20180103 ssp126
     """
-    if len(sys.argv) < 3:
-        print("Usage: python corrdiff_datagen.py <start_date> <end_date>")
-        print("  e.g., $python corrdiff_datagen.py 20180101 20180103")
+    argc = len(sys.argv)
+    if argc not in (3, 4):
+        print("Usage:")
+        print("  CWA : python corrdiff_datagen.py <start> <end>")
+        print("  SSP : python corrdiff_datagen.py <start> <end> <ssp_level>")
         sys.exit(1)
 
-    generate_corrdiff_zarr(sys.argv[1], sys.argv[2])
+    if argc == 3:
+        generate_corrdiff_zarr('CWA', sys.argv[1], sys.argv[2])
+    elif argc == 4:
+        generate_corrdiff_zarr('SSP', sys.argv[1], sys.argv[2], validate_ssp_level(sys.argv[3]))
 
 if __name__ == "__main__":
     main()

@@ -158,22 +158,152 @@ def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
     # All checks passed
     return True, "Dataset verification passed successfully."
 
+def verify_lowres_sfc_format(ds: xr.Dataset):
+    """
+    Verify that a dataset matches the expected ERA5 SFC format.
+    Raises descriptive errors if anything does not match.
+
+    Expected format:
+        Dimensions: time, bnds, latitude, longitude
+        Coordinates: time, latitude, longitude
+        Variables:
+            - time_bnds: shape (time, bnds)
+            - tp:        shape (time, latitude, longitude)
+    """
+
+    # ---- 1. Required dimensions ----
+    required_dims = ["time", "bnds", "latitude", "longitude"]
+    for dim in required_dims:
+        if dim not in ds.dims:
+            raise ValueError(f"Missing required dimension: '{dim}'")
+
+    # ---- 2. Required coordinates ----
+    if "time" not in ds.coords:
+        raise ValueError("Missing required coordinate 'time'")
+    if "latitude" not in ds.coords:
+        raise ValueError("Missing required coordinate 'latitude'")
+    if "longitude" not in ds.coords:
+        raise ValueError("Missing required coordinate 'longitude'")
+
+    # ---- 3. Coordinate dtype checks ----
+    if not np.issubdtype(ds["time"].dtype, np.datetime64):
+        raise TypeError("time coordinate must be datetime64[]")
+    if not np.issubdtype(ds["latitude"].dtype, np.number):
+        raise TypeError("latitude coordinate must be numeric")
+    if not np.issubdtype(ds["longitude"].dtype, np.number):
+        raise TypeError("longitude coordinate must be numeric")
+
+    # ---- 4. Required variables ----
+    if "time_bnds" not in ds.data_vars:
+        raise ValueError("Missing required variable 'time_bnds'")
+    if "tp" not in ds.data_vars:
+        raise ValueError("Missing required variable 'tp' (precipitation)")
+
+    # ---- 5. Variable shape verification ----
+    if ds["time_bnds"].dims != ("time", "bnds"):
+        raise ValueError(
+            f"time_bnds must have dims ('time', 'bnds'), got {ds['time_bnds'].dims}"
+        )
+
+    if ds["tp"].dims != ("time", "latitude", "longitude"):
+        raise ValueError(
+            f"tp must have dims ('time', 'latitude', 'longitude'), got {ds['tp'].dims}"
+        )
+
+    print("✓ Dataset matches ERA5 SFC format.")
+
+def verify_lowres_prs_format(ds: xr.Dataset, var_name: str):
+    """
+    Verify that a dataset matches the expected ERA5 PRS (pressure-level) format.
+
+    Expected format (based on ERA5 PRS example):
+        Dimensions:
+            - time
+            - bnds
+            - level
+            - latitude
+            - longitude
+
+        Coordinates:
+            - time       (datetime64)
+            - level      (numeric, usually pressure in hPa)
+            - latitude   (numeric)
+            - longitude  (numeric)
+
+        Data variables:
+            - time_bnds  (time, bnds)
+            - <var_name> (time, level, latitude, longitude), e.g. 'u'
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset to validate.
+    var_name : str, optional
+        Name of the main 4D variable to check (default: 'u').
+
+    Raises
+    ------
+    ValueError, TypeError
+        If the dataset does not match the expected ERA5 PRS structure.
+    """
+
+    # ---- 1. Required dimensions ----
+    required_dims = ["time", "bnds", "level", "latitude", "longitude"]
+    for dim in required_dims:
+        if dim not in ds.dims:
+            raise ValueError(f"Missing required dimension: '{dim}'")
+
+    # ---- 2. Required coordinates ----
+    for coord in ["time", "level", "latitude", "longitude"]:
+        if coord not in ds.coords:
+            raise ValueError(f"Missing required coordinate '{coord}'")
+
+    # ---- 3. Coordinate dtype checks ----
+    if not np.issubdtype(ds["time"].dtype, np.datetime64):
+        raise TypeError("time coordinate must be datetime64[]")
+
+    for coord in ["level", "latitude", "longitude"]:
+        if not np.issubdtype(ds[coord].dtype, np.number):
+            raise TypeError(f"{coord} coordinate must be numeric")
+
+    # ---- 4. Required variables ----
+    if "time_bnds" not in ds.data_vars:
+        raise ValueError("Missing required variable 'time_bnds'")
+    if var_name not in ds.data_vars:
+        raise ValueError(f"Missing required variable '{var_name}'")
+
+    # ---- 5. Variable shape verification ----
+    if ds["time_bnds"].dims != ("time", "bnds"):
+        raise ValueError(
+            f"time_bnds must have dims ('time', 'bnds'), "
+            f"got {ds['time_bnds'].dims}"
+        )
+
+    expected_var_dims = ("time", "level", "latitude", "longitude")
+    if ds[var_name].dims != expected_var_dims:
+        raise ValueError(
+            f"{var_name} must have dims {expected_var_dims}, "
+            f"got {ds[var_name].dims}"
+        )
+
+    print(f"✓ Dataset matches ERA5 PRS format (variable='{var_name}').")
+
 def dump_regrid_netcdf(
     subdir: str,
-    tread_pre_regrid: xr.Dataset,
-    tread_post_regrid: xr.Dataset,
-    era5_pre_regrid: xr.Dataset,
-    era5_post_regrid: xr.Dataset
+    hr_pre_regrid: xr.Dataset,
+    hr_post_regrid: xr.Dataset,
+    lr_pre_regrid: xr.Dataset,
+    lr_post_regrid: xr.Dataset
 ) -> None:
     """
     Saves the provided datasets to NetCDF files within a specified subdirectory.
 
     Parameters:
     subdir (str): The subdirectory path where the NetCDF files will be saved.
-    tread_pre_regrid (xr.Dataset): The TReAD dataset before regridding.
-    tread_post_regrid (xr.Dataset): The TReAD dataset after regridding.
-    era5_pre_regrid (xr.Dataset): The ERA5 dataset before regridding.
-    era5_post_regrid (xr.Dataset): The ERA5 dataset after regridding.
+    hr_pre_regrid (xr.Dataset): The high-resolution dataset before regridding.
+    hr_post_regrid (xr.Dataset): The high-resolution dataset after regridding.
+    lr_pre_regrid (xr.Dataset): The low-resolution dataset before regridding.
+    lr_post_regrid (xr.Dataset): The low-resolution dataset after regridding.
 
     Returns:
     None
@@ -182,10 +312,10 @@ def dump_regrid_netcdf(
     folder.mkdir(parents=True, exist_ok=True)
 
     for dataset, name in [
-        (tread_pre_regrid, "tread_pre_regrid.nc"),
-        (tread_post_regrid, "tread_post_regrid.nc"),
-        (era5_pre_regrid, "era5_pre_regrid.nc"),
-        (era5_post_regrid, "era5_post_regrid.nc")
+        (hr_pre_regrid, "highres_pre_regrid.nc"),
+        (hr_post_regrid, "highres_post_regrid.nc"),
+        (lr_pre_regrid, "lowres_pre_regrid.nc"),
+        (lr_post_regrid, "lowres_post_regrid.nc")
     ]:
         dataset.to_netcdf(folder / name)
 
