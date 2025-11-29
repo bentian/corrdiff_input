@@ -167,7 +167,7 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level:
         return
 
     # Write the output dataset to ZARR.
-    write_to_zarr(f"corrdiff_{ssp_level}dataset_{start_date}_{end_date}.zarr", out)
+    write_to_zarr(f"corrdiff_{ssp_level}_dataset_{start_date}_{end_date}.zarr", out)
 
 def validate_ssp_level(raw: str) -> str:
     """

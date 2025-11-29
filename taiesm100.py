@@ -171,8 +171,11 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
 
     # Read data from file
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
-    prs_data = convert_to_era5_format(xr.open_mfdataset(prs_paths, combine="by_coords"))
-    return prs_data.sel(level=pressure_levels, time=duration)
+    prs_data = convert_to_era5_format(
+                    xr.open_mfdataset(prs_paths, combine="by_coords")
+                ).sel(level=pressure_levels, time=duration)
+
+    return prs_data
 
 def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     """
@@ -187,18 +190,19 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
         xarray.Dataset: Processed surface data.
     """
     surface_vars = list(dict.fromkeys(
-        ch['name'] for ch in TAIESM_100_CHANNELS
-        if 'pressure' not in ch
+        ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' not in ch
     ))
 
     # Read data from file
     sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
-    sfc_data = convert_to_era5_format(xr.open_mfdataset(sfc_paths, combine='by_coords'))
+    sfc_data = convert_to_era5_format(
+                    xr.open_mfdataset(sfc_paths, combine='by_coords')
+                ).sel(time=duration)
 
     sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
     sfc_data['pr'].attrs['units'] = 'mm/day'
 
-    return sfc_data.sel(time=duration)
+    return sfc_data
 
 def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
                           ssp_level: str) -> Tuple[xr.Dataset, xr.Dataset]:
