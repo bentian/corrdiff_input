@@ -83,9 +83,11 @@ def regrid_to_larger(
     print("Extrapolating to larger grid...")
 
     # Create new lat/lon grid
-    new_lat = np.linspace(lat.min(), lat.max(), ny)
-    new_lon = np.linspace(lon.min(), lon.max(), nx)
-    new_lat2d, new_lon2d = np.meshgrid(new_lat, new_lon, indexing="ij")
+    new_lat2d, new_lon2d = np.meshgrid(
+        np.linspace(lat.min(), lat.max(), ny),
+        np.linspace(lon.min(), lon.max(), nx),
+        indexing="ij"
+    )
     new_grid = xr.Dataset(
         {
             "lat": (["south_north", "west_east"], new_lat2d),
@@ -107,15 +109,12 @@ def regrid_to_larger(
         extrap_method="nearest_s2d",
     )
 
-    lat_grid = new_grid["lat"].values
-    lon_grid = new_grid["lon"].values
-
     # Regrid all existing fields
     for name, arr in layer_data.items():
         if arr is not None:
             layer_data[name] = regridder(xr.DataArray(arr))
 
-    return lat_grid, lon_grid, layer_data
+    return new_grid["lat"].values, new_grid["lon"].values, layer_data
 
 
 def crop_to_smaller(
@@ -127,13 +126,12 @@ def crop_to_smaller(
 ):
     """Crop input fields to a smaller (ny, nx) grid centered at (clat, clon)."""
     ny, nx = img_size
-    clat, clon = center
 
     print("Cropping to smaller grid ...")
 
     # Find center indices
-    idy = np.abs(lat[:, 0] - clat).argmin()
-    idx = np.abs(lon[0, :] - clon).argmin()
+    idy = np.abs(lat[:, 0] - center[0]).argmin()
+    idx = np.abs(lon[0, :] - center[1]).argmin()
 
     # Calculate slicing indices
     slat = max(0, idy - ny // 2)
@@ -142,16 +140,12 @@ def crop_to_smaller(
     elon = min(lon.shape[1], idx + nx // 2)
     print(f"  slice (lat, lon) = [{slat}:{elat}, {slon}:{elon}]")
 
-    # Crop the grid
-    lat_grid = lat[slat:elat, slon:elon]
-    lon_grid = lon[slat:elat, slon:elon]
-
     # Crop all existing fields
     for name, arr in layer_data.items():
         if arr is not None:
             layer_data[name] = arr[slat:elat, slon:elon]
 
-    return lat_grid, lon_grid, layer_data
+    return lat[slat:elat, slon:elon], lon[slat:elat, slon:elon], layer_data
 
 
 def save_output(
