@@ -55,13 +55,11 @@ from util import verify_dataset, dump_regrid_netcdf
 
 DEBUG = False  # Set to True to enable debugging
 
-def generate_output_dataset(mode: str, start_date: str, end_date: str,
-                            ssp_level: str) -> xr.Dataset:
+def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> xr.Dataset:
     """
     Generates a consolidated output dataset by processing low-res and high-res data fields.
 
     Parameters:
-        mode (str): Processing mode, either 'CWA' or 'SSP'.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
         ssp_level (str): SSP level used to select the TaiESM dataset directory
@@ -73,8 +71,8 @@ def generate_output_dataset(mode: str, start_date: str, end_date: str,
     """
     # Generate high-res and low-res output datasets
     hr_outputs, lr_outputs, grid_coords = (
-        cwa.generate_output_dataset(start_date, end_date) if mode == "CWA"
-        else ssp.generate_output_dataset(start_date, end_date, ssp_level)
+        ssp.generate_output_dataset(start_date, end_date, ssp_level)
+        if ssp_level else cwa.generate_output_dataset(start_date, end_date)
     )
 
     # Group outputs into dictionaries
@@ -141,13 +139,12 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
 
     print(f"Data successfully saved to [{out_path}]")
 
-def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level: str = '') -> None:
+def generate_corrdiff_zarr(start_date: str, end_date: str, ssp_level: str = '') -> None:
     """
     Generates and verifies a consolidated dataset for low-res and high-res data,
     then writes it to a Zarr file format.
 
     Parameters:
-        mode (str): Processing mode, either 'CWA' or 'SSP'.
         start_date (str): Start date of the data range in 'YYYYMMDD' format.
         end_date (str): End date of the data range in 'YYYYMMDD' format.
         ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
@@ -157,7 +154,7 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level:
         None
     """
     # Generate the output dataset.
-    out = generate_output_dataset(mode, start_date, end_date, ssp_level)
+    out = generate_output_dataset(start_date, end_date, ssp_level)
     print(f"\nZARR dataset =>\n {out}")
 
     # Verify the output dataset.
@@ -167,7 +164,8 @@ def generate_corrdiff_zarr(mode: str, start_date: str, end_date: str, ssp_level:
         return
 
     # Write the output dataset to ZARR.
-    write_to_zarr(f"corrdiff_{ssp_level}_dataset_{start_date}_{end_date}.zarr", out)
+    prefix = ssp_level if ssp_level else "corrdiff"
+    write_to_zarr(f"{prefix}_dataset_{start_date}_{end_date}.zarr", out)
 
 def validate_ssp_level(raw: str) -> str:
     """
@@ -205,9 +203,9 @@ def main():
         sys.exit(1)
 
     if argc == 3:
-        generate_corrdiff_zarr('CWA', sys.argv[1], sys.argv[2])
+        generate_corrdiff_zarr(sys.argv[1], sys.argv[2])
     elif argc == 4:
-        generate_corrdiff_zarr('SSP', sys.argv[1], sys.argv[2], validate_ssp_level(sys.argv[3]))
+        generate_corrdiff_zarr(sys.argv[1], sys.argv[2], validate_ssp_level(sys.argv[3]))
 
 if __name__ == "__main__":
     main()
