@@ -20,7 +20,7 @@ import xesmf as xe
 
 # === Default parameters ===
 DEFAULT_CLAT, DEFAULT_CLON = 23.6745, 120.9465  # Center latitude / longitude
-DEFAULT_NY, DEFAULT_NX = 304, 304               # Desired grid dimensions
+DEFAULT_NY, DEFAULT_NX = 208, 208               # Desired grid dimensions
 
 # === Input / Output ===
 INPUT_FILE = "./TAIESM_tw3.5km_coord2d.nc"
@@ -235,7 +235,7 @@ def main() -> None:
         print("  python generate_wrf_coord.py <input_file> <ny> <nx>")
         sys.exit(1)
 
-    output_file = f"./wrf_{ny}x{nx}_grid_coords.nc"
+    output_file = f"./ssp_{ny}x{nx}_grid_coords.nc"
     process_grid(input_file, output_file,
                  (DEFAULT_CLAT, DEFAULT_CLON), # center lat / lon
                  (ny, nx)) # image size

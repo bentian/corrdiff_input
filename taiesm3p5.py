@@ -125,7 +125,7 @@ def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     cropped_with_coords = (
         # FIXME - Remove hardcoded lat/lon once XLAT & XLONG are available
         surface_ds
-            .isel(south_north=slice(0, 304), west_east=slice(4, 308))
+            .isel(south_north=slice(48, 256), west_east=slice(52, 260))
             .assign_coords(
                 lat=(("south_north", "west_east"), grid.XLAT.data),
                 lon=(("south_north", "west_east"), grid.XLONG.data),

@@ -50,7 +50,7 @@ from cwa_data import GRID_COORD_KEYS, get_cwb_fields, get_era5_fields
 # -------------------------------------------------------------------
 # REF grid
 # -------------------------------------------------------------------
-REF_GRID_NC = "./ref_grid/wrf_304x304_grid_coords.nc"
+REF_GRID_NC = "./ref_grid/ssp_208x208_grid_coords.nc"
 
 def get_ref_grid() -> Tuple[xr.Dataset, dict]:
     """
