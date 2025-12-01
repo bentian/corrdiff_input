@@ -32,6 +32,7 @@ import xarray as xr
 
 from util import is_local_testing, regrid_dataset
 
+TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
     {'name': 'pr', 'variable': 'precipitation'},
     # 500
@@ -244,14 +245,13 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         get_pressure_level_data(folder, duration)
     ])
 
-    # Crop to Taiwan domain given TaiESM 100km is global data.
-    lat, lon = grid.XLAT, grid.XLONG
+    # From Taiwan center, crop +/- 20 degrees lat/lon per discussion.
     cropped_with_coords = sfc_prs_ds.sel(
-        latitude=slice(lat.min().item(), lat.max().item()),
-        longitude=slice(lon.min().item(), lon.max().item())
+        latitude=slice(TAIWAN_CLAT - 20, TAIWAN_CLAT + 20),
+        longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20)
     ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
 
-    # FIXME - enlarge cropped_with_coords to output_ds
+    # Based on REF grid, regrid cropped data over spatial dimensions for all timestamps.
     output_ds = regrid_dataset(cropped_with_coords, grid)
 
     return cropped_with_coords, output_ds
