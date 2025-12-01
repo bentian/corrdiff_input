@@ -118,6 +118,7 @@ def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
             .rename({"Time": "time"})                       # unify time dimension name
             .drop_vars("Times", errors="ignore")            # remove the raw WRF Times bytes
             .sel(time=slice(start_datetime, end_datetime))  # select requested dates
+            .isel(time=slice(None, -1))     # FIXEME - drop the last timestamp in each file
         )
     )
 
