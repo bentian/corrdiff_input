@@ -44,7 +44,6 @@ Usage:
 """
 import sys
 
-import zarr
 import xarray as xr
 import numpy as np
 from numcodecs import Blosc
