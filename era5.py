@@ -187,7 +187,7 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     ))
 
     prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
-    return xr.open_mfdataset(prs_paths, combine='by_coords') \
+    return xr.open_mfdataset(prs_paths, combine='by_coords', compat="no_conflicts") \
             .sel(level=pressure_levels, time=duration)
 
 def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
@@ -208,7 +208,8 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     ))
 
     sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
-    sfc_data = xr.open_mfdataset(sfc_paths, combine='by_coords').sel(time=duration)
+    sfc_data = xr.open_mfdataset(sfc_paths, combine='by_coords', compat="no_conflicts") \
+                .sel(time=duration)
     sfc_data['tp'] = sfc_data['tp'] * 24 * 1000  # Convert unit to mm/day
     sfc_data['tp'].attrs['units'] = 'mm/day'
 
@@ -317,7 +318,7 @@ def get_era5_dataset(
         era5_sfc,
         get_pressure_level_data(folder, duration),
         get_era5_orography(folder, era5_sfc.time)
-    ])
+    ], compat="no_conflicts")
 
     # Crop to Taiwan domain given ERA5 is global data.
     lat, lon = grid.XLAT, grid.XLONG

@@ -92,7 +92,6 @@ def get_data_dir(ssp_level: str) -> str:
 
 def get_prs_paths(
     folder: str,
-    subfolder: str,
     variables: List[str],
     start_date: str,
     end_date: str
@@ -102,7 +101,6 @@ def get_prs_paths(
 
     Parameters:
         folder (str): The base directory containing the data files.
-        subfolder (str): The subdirectory under 'PRS' where the data files are located.
         variables (list of str): List of variable names to include.
         start_date (str or datetime-like): The start date of the desired data range.
         end_date (str or datetime-like): The end date of the desired data range.
@@ -117,14 +115,13 @@ def get_prs_paths(
                 for var in variables for yyyymm in date_range]
 
     return [
-        folder_path / "PRS" / subfolder / var / yyyymm[:4] / \
+        folder_path / var / yyyymm[:4] / \
             f"TaiESM1_PRS_{var}_{yyyymm}_r1440x721_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
 def get_sfc_paths(
     folder: str,
-    subfolder: str,
     variables: List[str],
     start_date: str,
     end_date: str
@@ -134,7 +131,6 @@ def get_sfc_paths(
 
     Parameters:
         folder (str): The base directory containing the data files.
-        subfolder (str): The subdirectory under 'SFC' where the data files are located.
         variables (list of str): List of variable names to include.
         start_date (str or datetime-like): The start date of the desired data range.
         end_date (str or datetime-like): The end date of the desired data range.
@@ -149,7 +145,7 @@ def get_sfc_paths(
                 for var in variables for yyyymm in date_range]
 
     return [
-        folder_path / "SFC" / subfolder / var / yyyymm[:4] / \
+        folder_path / var / yyyymm[:4] / \
             f"TaiESM1_SFC_{var}_{yyyymm}_r1440x721_day.nc"
         for var in variables for yyyymm in date_range
     ]
@@ -171,9 +167,9 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     ))
 
     # Read data from file
-    prs_paths = get_prs_paths(folder, 'day', pressure_level_vars, duration.start, duration.stop)
+    prs_paths = get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop)
     prs_data = convert_to_era5_format(
-                    xr.open_mfdataset(prs_paths, combine="by_coords")
+                    xr.open_mfdataset(prs_paths, combine="by_coords", compat="no_conflicts")
                 ).sel(level=pressure_levels, time=duration)
 
     return prs_data
@@ -195,9 +191,9 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     ))
 
     # Read data from file
-    sfc_paths = get_sfc_paths(folder, 'day', surface_vars, duration.start, duration.stop)
+    sfc_paths = get_sfc_paths(folder, surface_vars, duration.start, duration.stop)
     sfc_data = convert_to_era5_format(
-                    xr.open_mfdataset(sfc_paths, combine='by_coords')
+                    xr.open_mfdataset(sfc_paths, combine='by_coords', compat="no_conflicts")
                 ).sel(time=duration)
 
     sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
@@ -242,8 +238,8 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     # Process and merge surface and pressure levels data
     sfc_prs_ds = xr.merge([
         get_surface_data(folder, duration),
-        get_pressure_level_data(folder, duration)
-    ])
+        get_pressure_level_data(folder, duration),
+    ], compat="no_conflicts")
 
     # From Taiwan center, crop +/- 20 degrees lat/lon per discussion.
     cropped_with_coords = sfc_prs_ds.sel(

@@ -75,7 +75,7 @@ def get_data_dir() -> str:
     This helper centralizes environment-dependent path handling so the rest of the
     codebase can reference TReAD data without worrying about where it is stored.
     """
-    return "./data/tread" if is_local_testing() else "/lfs/archive/TCCIP_data/TReAD/SFC/hr"
+    return "./data/tread" if is_local_testing() else "/lfs/archive/TCCIP_data/TReAD/V1/SFC/hr"
 
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     """

@@ -47,6 +47,7 @@ import sys
 import zarr
 import xarray as xr
 import numpy as np
+from numcodecs import Blosc
 from dask.diagnostics import ProgressBar
 
 import cwa_data as cwa
@@ -130,12 +131,12 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
     Returns:
         None
     """
-    comp = zarr.Blosc(cname='zstd', clevel=3, shuffle=2)
+    comp = Blosc(cname='zstd', clevel=3, shuffle=Blosc.SHUFFLE)
     encoding = { var: {'compressor': comp} for var in out_ds.data_vars }
 
     print(f"\nSaving data to {out_path}:")
     with ProgressBar():
-        out_ds.to_zarr(out_path, mode='w', encoding=encoding, compute=True)
+        out_ds.to_zarr(out_path, mode='w', encoding=encoding, compute=True, zarr_format=2)
 
     print(f"Data successfully saved to [{out_path}]")
 

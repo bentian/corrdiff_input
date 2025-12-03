@@ -140,9 +140,9 @@ def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
     missing_dims = [dim for dim in required_dims if dim not in ds.dims]
     if missing_dims:
         return False, f"Missing required dimensions: {', '.join(missing_dims)}."
-    if ds.dims["south_north"] != ds.dims["west_east"]:
+    if ds.sizes["south_north"] != ds.sizes["west_east"]:
         return False, "Dimensions 'south_north' and 'west_east' are not equal."
-    if ds.dims["south_north"] % 16 != 0:
+    if ds.sizes["south_north"] % 16 != 0:
         return False, "Dimensions 'south_north' and 'west_east' are not multiples of 16."
 
     # Check coordinates
