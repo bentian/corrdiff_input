@@ -169,7 +169,8 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     # Read data from file
     prs_paths = get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop)
     prs_data = convert_to_era5_format(
-                    xr.open_mfdataset(prs_paths, combine="by_coords", compat="no_conflicts")
+                    xr.open_mfdataset(prs_paths, combine="by_coords",
+                                      compat="no_conflicts", data_vars="all")
                 ).sel(level=pressure_levels, time=duration)
 
     return prs_data
@@ -193,7 +194,8 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     # Read data from file
     sfc_paths = get_sfc_paths(folder, surface_vars, duration.start, duration.stop)
     sfc_data = convert_to_era5_format(
-                    xr.open_mfdataset(sfc_paths, combine='by_coords', compat="no_conflicts")
+                    xr.open_mfdataset(sfc_paths, combine='by_coords',
+                                      compat="no_conflicts", data_vars="all")
                 ).sel(time=duration)
 
     sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
