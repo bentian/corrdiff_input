@@ -32,6 +32,7 @@ import xarray as xr
 
 from util import is_local_testing, regrid_dataset
 
+TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
     {'name': 'pr', 'variable': 'precipitation'},
     # 500
@@ -237,23 +238,21 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
-    sfc_prs_ds = (
-        xr.merge(
-            [
-                get_surface_data(folder, duration),
-                get_pressure_level_data(folder, duration)
-            ],
-            # Raise error if overlapping values (e.g., data of the same date) are different.
-            compat="no_conflicts",
-        )
-        .rename({ ch["name"]: ch["variable"] for ch in TAIESM_100_CHANNELS })
-        #.sortby("latitude")    # sort `latitude` from small to large
-    )
+    sfc_prs_ds = xr.merge([
+        get_surface_data(folder, duration),
+        get_pressure_level_data(folder, duration),
+    ], compat="no_conflicts")
+
+    # From Taiwan center, crop +/- 20 degrees lat/lon per discussion.
+    cropped_with_coords = sfc_prs_ds.sel(
+        latitude=slice(TAIWAN_CLAT - 20, TAIWAN_CLAT + 20),
+        longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20)
+    ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
 
     # Based on REF grid, regrid cropped data over spatial dimensions for all timestamps.
-    output_ds = regrid_dataset(sfc_prs_ds, grid)
+    output_ds = regrid_dataset(cropped_with_coords, grid)
 
-    return sfc_prs_ds, output_ds
+    return cropped_with_coords, output_ds
 
 def convert_to_era5_format(ds: xr.Dataset) -> xr.Dataset:
     """
