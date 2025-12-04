@@ -27,10 +27,11 @@ minimal special-case logic.
 from pathlib import Path
 from typing import List, Tuple
 
+import numpy as np
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing, regrid_dataset
+from util import is_local_testing
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
@@ -249,8 +250,8 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
         longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20)
     ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
 
-    # Based on REF grid, regrid cropped data over spatial dimensions for all timestamps.
-    output_ds = regrid_dataset(cropped_with_coords, grid)
+    # Expand cropped data to REF grid size, ignoring original latitude/longtitude.
+    output_ds = expand_to_grid(cropped_with_coords, grid)
 
     return cropped_with_coords, output_ds
 
@@ -300,3 +301,80 @@ def convert_to_era5_format(ds: xr.Dataset) -> xr.Dataset:
     out = out.drop_vars(["lat_bnds", "lon_bnds"], errors="ignore")
 
     return out
+
+def expand_to_grid(ds: xr.Dataset, grid: xr.Dataset) -> xr.Dataset:
+    """
+    Expand a coarse-resolution dataset onto a high-resolution target grid by
+    interpolating in index space rather than geographic space.
+
+    This function takes an input dataset defined on a (latitude, longitude)
+    grid of shape (nlat, nlon) and resamples it to match the REF grid
+    described by (south_north, west_east). The physical latitude/longitude
+    coordinates of the coarse dataset are ignored; only their index positions
+    are used. This produces an efficient and deterministic "index-space"
+    interpolation suitable for embedding low-resolution fields into a target
+    model grid.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Low-resolution dataset with dimensions (time, [level], latitude, longitude).
+        The physical values of latitude/longitude are ignored; only their index order
+        is used for interpolation.
+    grid : xr.Dataset
+        Dataset containing REF grid dimensions (south_north, west_east) and
+        2D fields XLAT and XLONG.
+
+    Returns
+    -------
+    xr.Dataset
+        A new dataset with dimensions (time, [level], south_north, west_east),
+        containing index-interpolated variables aligned with the REF grid and
+        annotated with XLAT/XLONG spatial coordinates. The attribute
+        `regrid_method="bilinear"` is added for provenance.
+
+    Notes
+    -----
+    - This method does *not* perform geographic interpolation. It is strictly
+      an index-based expansion to embed large-scale fields into a high-resolution
+      domain.
+    - Useful when coarse fields serve as contextual features for fine-grid models
+      and the fine-grid spatial structure is supplied by XLAT/XLONG.
+    """
+    # Extract dataset and REF grid sizes
+    nlat, nlon = ds.sizes["latitude"], ds.sizes["longitude"]
+    ny, nx = grid.sizes["south_north"], grid.sizes["west_east"]
+
+    # Treat latitude/longitude as pure indices
+    ds_idx = ds.assign_coords(
+        latitude=("latitude", np.arange(nlat)),
+        longitude=("longitude", np.arange(nlon)),
+    )
+
+    # Index-space positions for REF grid
+    new_i = xr.DataArray(np.linspace(0, nlat - 1, ny), dims=("south_north",), name="latitude")
+    new_j = xr.DataArray(np.linspace(0, nlon - 1, nx), dims=("west_east",), name="longitude")
+
+    # Interpolate in index space, remove latitude/longitude, and attach REF grid coords
+    expanded = (
+        ds_idx
+        .interp(latitude=new_i, longitude=new_j)
+        .drop_vars(["latitude", "longitude", "time_bnds"], errors="ignore")
+        .assign_coords(
+            XLAT=(("south_north", "west_east"), grid["XLAT"].values),
+            XLONG=(("south_north", "west_east"), grid["XLONG"].values)
+        )
+    )
+
+    # Ensure level is a coordinate if it exists
+    if "level" in expanded.dims and "level" not in expanded.coords:
+        expanded = expanded.assign_coords(level=ds["level"])
+
+    # Rechunk for desired pattern.
+    # e.g. precipitation: (1, 208, 208), winds: (1, 1, 208, 208)
+    chunks = {"time": 1, "south_north": ny, "west_east": nx}
+    if "level" in expanded.dims:
+        chunks["level"] = 1
+    expanded = expanded.chunk(chunks)
+
+    return expanded.assign_attrs(regrid_method="bilinear")
