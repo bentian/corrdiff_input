@@ -1,0 +1,228 @@
+"""
+CorrDiff reference-grid utilities for constructing high-resolution (CWB/TReAD)
+and low-resolution (ERA5 / TaiESM) datasets on a unified WRF-style domain.
+
+This module centralizes the logic required to align multi-source atmospheric
+datasets—CWA TReAD, ERA5, TaiESM 3.5 km, and TaiESM 100 km—onto a common
+208×208 reference grid used by CorrDiff for training and inference.
+
+Main capabilities
+-----------------
+1. Reference grid loading
+   - `get_ref_grid()` loads either the CWA reference grid or the SSP reference
+     grid, exposing:
+       * 2-D `lat`/`lon` fields,
+       * projection and auxiliary coordinate variables,
+       * optional terrain fields (TER, SLOPE, ASPECT).
+
+2. Dataset generation pipelines
+   - `generate_cwa_outputs()` builds TReAD (CWB) + ERA5 datasets on the
+     reference grid over a given date range.
+   - `generate_ssp_outputs()` builds TaiESM 3.5 km + TaiESM 100 km datasets
+     for a selected Shared Socioeconomic Pathway (SSP).
+
+3. Field-assembly helpers
+   - All outputs are converted into standardized “CorrDiff-ready” tensors via:
+       * `get_cwb_fields()` for high-resolution TReAD / CWB fields.
+       * `get_era5_fields()` for low-resolution ERA5 / TaiESM 100 km fields.
+   - Each helper returns:
+       * normalized / centered fields,
+       * scale factors,
+       * validity masks,
+       * the raw pre-regrid dataset and the final aligned dataset.
+
+Output format
+-------------
+All generated datasets follow CorrDiff conventions:
+
+    (channel, time, south_north, west_east)
+
+and are backed by Dask arrays to support scalable I/O and training workloads.
+
+This module serves as the top-level orchestration layer that connects:
+reference-grid metadata → dataset loaders → channel construction →
+CorrDiff-ready tensors.
+
+"""
+from typing import Tuple
+import xarray as xr
+
+from data_loaders import (
+    get_tread_dataset, get_tread_channels,
+    get_era5_dataset, get_era5_channels,
+    get_taiesm3p5_dataset, get_taiesm3p5_channels,
+    get_taiesm100_dataset, get_taiesm100_channels
+)
+from tensor_fields import get_cwb_fields, get_era5_fields
+
+# -------------------------------------------------------------------
+# REF grid
+# -------------------------------------------------------------------
+CWA_REF_GRID = "./ref_grid/wrf_208x208_grid_coords.nc"
+SSP_REF_GRID = "./ref_grid/ssp_208x208_grid_coords.nc"
+GRID_COORD_KEYS = ["XLAT", "XLONG"]
+
+
+def get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
+    """
+    Load the reference grid used for spatial alignment of model inputs and outputs.
+
+    This function loads either the SSP reference grid or the CWA reference grid
+    depending on the `ssp_level` parameter. It extracts the 2D latitude/longitude
+    fields required for interpolation or expansion onto the target grid, plus
+    additional grid-related coordinate variables and optional terrain metadata.
+
+    Parameters
+    ----------
+    ssp_level : str, optional
+        Scenario identifier. If a non-empty string is provided, the SSP reference
+        grid is loaded. If empty (default), the CWA reference grid is used.
+        The terrain fields (TER, SLOPE, ASPECT) are included only when
+        `ssp_level` is empty.
+
+    Returns
+    -------
+    grid : xr.Dataset
+        Dataset containing the target grid's spatial coordinate fields:
+        - `lat`: 2D latitude field (south_north × west_east)
+        - `lon`: 2D longitude field (south_north × west_east)
+
+    grid_coords : dict
+        Dictionary of additional coordinate variables extracted from the
+        reference file, keyed by `GRID_COORD_KEYS`. These may include
+        projection metadata, map factors, or other grid descriptors.
+
+    terrain : dict
+        Terrain-related fields from the reference grid:
+        - empty dict when `ssp_level` is provided
+        - otherwise contains:
+            { "ter": TER, "slope": SLOPE, "aspect": ASPECT }
+        where each value is an xarray DataArray.
+
+    Notes
+    -----
+    - This function does not modify or preprocess the grid; it merely loads and
+      exposes the required pieces for downstream interpolation or expansion.
+    - `grid` is intended to be passed to functions such as `expand_to_grid()`.
+    """
+    # Choose reference grid file based on whether we are using an SSP scenario
+    ref_grid_path = SSP_REF_GRID if ssp_level else CWA_REF_GRID
+
+    # Open reference grid
+    ref = xr.open_dataset(ref_grid_path , engine='netcdf4')
+
+    # Extra grid-related coordinates
+    grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
+    grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
+
+    # Terrain fields only for the CWA grid
+    if ssp_level:
+        terrain = {}
+    else:
+        terrain = { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] }
+
+    return grid, grid_coords, terrain
+
+# -------------------------------------------------------------------
+# TReAD & ERA5 outputs
+# -------------------------------------------------------------------
+
+def generate_cwa_outputs(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
+    """
+    Generates output datasets for TReAD and ERA5 based on a specified date range
+    and a common reference grid.
+
+    This function first retrieves a reference grid, its coordinates, and terrain layer
+    information. It then uses this grid to generate two xarray.Dataset objects:
+    one representing TReAD output and another for ERA5 output, both
+    constrained by the given start and end dates.
+
+    Args:
+        start_date (str): The start date for generating the datasets in format "YYYYMMDD".
+        end_date (str): The end date for generating the datasets in format "YYYYMMDD".
+
+    Returns:
+        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
+            - tread_outputs (xr.Dataset): An xarray Dataset containing the
+                                          generated TReAD output data.
+            - era5_outputs (xr.Dataset): An xarray Dataset containing the
+                                         generated ERA5 output data.
+            - grid_coords (xr.Dataset): An xarray Dataset containing the
+                                        coordinates of the reference grid.
+    """
+    grid, grid_coords, terrain = get_ref_grid()
+
+    # TReAD
+    tread_pre_regrid, tread_out = get_tread_dataset(grid, start_date, end_date)
+    print(f"\nTReAD dataset =>\n {tread_out}")
+    tread_outputs = (
+        *get_cwb_fields(tread_out, get_tread_channels()),
+        tread_pre_regrid,
+        tread_out
+    )
+
+    # ERA5
+    era5_pre_regrid, era5_out = get_era5_dataset(grid, terrain, start_date, end_date)
+    print(f"\nERA5 dataset =>\n {era5_out}")
+    era5_outputs = (
+        *get_era5_fields(era5_out, get_era5_channels()),
+        era5_pre_regrid,
+        era5_out
+    )
+
+    return tread_outputs, era5_outputs, grid_coords
+
+
+# -------------------------------------------------------------------
+# TaiESM 3.5km & 100km outputs
+# -------------------------------------------------------------------
+
+def generate_ssp_outputs(start_date: str, end_date: str, ssp_level: str
+                         ) -> Tuple[xr.Dataset, xr.Dataset]:
+    """
+    Generates output datasets for TaiESM 3.5km and TaiESM 100km data under a
+    specified Shared Socioeconomic Pathway (SSP) level and date range.
+
+    This function first retrieves a common reference grid and its coordinates.
+    It then uses this grid to generate two xarray.Dataset objects: one for
+    TaiESM 3.5km data and another for TaiESM 100km data. Both datasets are
+    generated for the specified date range and according to the given SSP scenario.
+
+    Args:
+        start_date (str): The start date for generating the datasets in format "YYYYMMDD".
+        end_date (str): The end date for generating the datasets in format "YYYYMMDD".
+        ssp_level (str): The Shared Socioeconomic Pathway (SSP) level to be used
+                         for generating the datasets. (e.g., "ssp126", "ssp245", "ssp585")
+
+    Returns:
+        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
+            - taiesm3p5_outputs (xr.Dataset): An xarray Dataset containing the
+                                              generated TaiESM 3.5km output data.
+            - taiesm100_outputs (xr.Dataset): An xarray Dataset containing the
+                                              generated TaiESM 100km output data.
+            - grid_coords (xr.Dataset): An xarray Dataset containing the
+                                        coordinates of the reference grid.
+    """
+    grid, grid_coords, _ = get_ref_grid(ssp_level)
+
+    # TaiESM 3.5km
+    taiesm3p5_pre_regrid, taiesm3p5_out = \
+        get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)
+    print(f"\nTaiESM_3.5km dataset [{ssp_level}] =>\n {taiesm3p5_out}")
+    taiesm3p5_outputs = (
+        *get_cwb_fields(taiesm3p5_out, get_taiesm3p5_channels()),
+        taiesm3p5_pre_regrid,
+        taiesm3p5_out
+    )
+
+    # TaiESM 100km
+    taisem100_pre_regrid, taisem100_out = \
+        get_taiesm100_dataset(grid, start_date, end_date, ssp_level)
+    print(f"\nTaiESM 100km dataset [{ssp_level}] =>\n {taisem100_out}")
+    taiesm100_outputs = (
+        *get_era5_fields(taisem100_out, get_taiesm100_channels()),
+        taisem100_pre_regrid,
+        taisem100_out
+    )
+
+    return taiesm3p5_outputs, taiesm100_outputs, grid_coords

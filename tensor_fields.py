@@ -1,127 +1,86 @@
 """
-Core utilities for building CorrDiff-ready high-resolution (CWB/TReAD) and
-low-resolution (ERA5) tensors on a common reference grid.
+Utility functions for constructing CorrDiff-ready high- and low-resolution tensors.
 
-This module provides:
+This module centralizes the logic for turning gridded atmospheric datasets into
+stacked, normalized, Dask-backed `xarray.DataArray` objects with consistent
+(channel, time, south_north, west_east) conventions.
 
-- Loading of a WRF-style reference grid (`REF_GRID_NC`) and extraction of
-  its latitude/longitude coordinates and terrain fields (`get_ref_grid`).
-- A high-level pipeline to generate model inputs for a given date range
-  (`generate_output_dataset`), returning:
-    * TReAD-based high-resolution fields (cwb_*),
-    * ERA5-based low-resolution fields (era5_*),
-    * and shared grid coordinates.
-- Helper functions to construct stacked data tensors and diagnostics:
-    * CWB / high-res fields:
-        - `get_cwb_fields`  – assemble cwb, cwb_variable, cwb_center,
-                               cwb_scale, cwb_valid
-        - `get_cwb`, `get_cwb_pressure`, `get_cwb_variable`,
-          `get_cwb_center`, `get_cwb_scale`, `get_cwb_valid`
-    * ERA5 / low-res fields:
-        - `get_era5_fields` – assemble era5, era5_center, era5_scale,
-                               era5_valid
-        - `get_era5`, `get_era5_center`, `get_era5_scale`, `get_era5_valid`
+Main components
+---------------
+- Generic helper:
+    * `create_and_process_dataarray`:
+        Wraps stacked Dask arrays into `xarray.DataArray` objects with
+        coordinates, daily-floored time, and chunking patterns suitable
+        for CorrDiff training and inference.
 
-All tensors are Dask-backed `xarray.DataArray` objects with consistent
-(channel, time, south_north, west_east) conventions suitable for direct
-ingestion by CorrDiff training / inference code.
+- High-resolution (cwb_*) fields:
+    * `get_cwb_fields`:
+        High-level entry point returning:
+          - `cwb`          : stacked high-resolution tensor,
+          - `cwb_variable` : per-channel variable names,
+          - `cwb_center`   : per-channel mean,
+          - `cwb_scale`    : per-channel standard deviation,
+          - `cwb_valid`    : per-time validity mask.
+    * `get_cwb`, `get_cwb_pressure`, `get_cwb_variable`,
+      `get_cwb_center`, `get_cwb_scale`, `get_cwb_valid`:
+        Lower-level helpers used to build and describe the high-resolution tensor.
+
+- Low-resolution (era5_*) fields:
+    * `get_era5_fields`:
+        High-level entry point returning:
+          - `era5`        : stacked low-resolution tensor,
+          - `era5_center` : per-channel mean,
+          - `era5_scale`  : per-channel standard deviation,
+          - `era5_valid`  : per-time validity mask.
+    * `get_era5`, `get_era5_center`, `get_era5_scale`, `get_era5_valid`:
+        Lower-level helpers that assemble and normalize low-resolution tensor.
+
+All returned tensors are designed to be directly consumable by CorrDiff-style
+models, with consistent metadata (variable names, pressure levels) embedded as
+coordinates for easier downstream inspection and debugging.
 """
-from typing import Dict, List, Tuple
+from typing import List, Dict, Tuple
 
-import dask.array as da
 import numpy as np
 import xarray as xr
+import dask.array as da
 
-from tread import get_tread_dataset, get_tread_channels
-from era5 import get_era5_dataset, get_era5_channels
-from util import create_and_process_dataarray
-
-# -------------------------------------------------------------------
-# REF grid
-# -------------------------------------------------------------------
-REF_GRID_NC = "./ref_grid/wrf_208x208_grid_coords.nc"
-GRID_COORD_KEYS = ["XLAT", "XLONG"]
-
-def get_ref_grid() -> Tuple[xr.Dataset, dict, dict]:
+def create_and_process_dataarray(
+    name: str,
+    stack_data: np.ndarray,
+    dims: List[str],
+    coords: Dict[str, np.ndarray],
+    chunk_sizes: Dict[str, int]
+) -> xr.DataArray:
     """
-    Load the reference grid dataset and extract its coordinates and terrain-related variables.
+    Creates and processes an xarray.DataArray with specified
+    dimensions, coordinates, and chunk sizes.
 
-    This function reads a predefined reference grid NetCDF file and extracts:
-    - A dataset containing latitude (`lat`) and longitude (`lon`) grids.
-    - A dictionary of coordinate arrays specified by `GRID_COORD_KEYS`.
-    - A dictionary of terrain-related variables (`TER`, `SLOPE`, `ASPECT`) for use in
-      regridding and terrain processing.
+    Parameters:
+    - name (str): Name of the DataArray.
+    - stack_data (np.ndarray): The stacked data to initialize the DataArray.
+    - dims (List[str]): A list of dimension names.
+    - coords (Dict[str, np.ndarray]): A dictionary of coordinates for the DataArray.
+    - chunk_sizes (Dict[str, int]): A dictionary specifying chunk sizes for each dimension.
 
     Returns:
-        tuple:
-            - grid (xarray.Dataset): A dataset containing the latitude ('lat') and
-              longitude ('lon') grids for spatial alignment.
-            - grid_coords (dict): A dictionary of extracted coordinate arrays defined
-              by `GRID_COORD_KEYS` for downstream processing.
-            - terrain_layers (dict): A dictionary containing terrain-related variables
-              ('ter', 'slope', 'aspect') from the reference grid.
-
-    Notes:
-        - The reference grid file path is defined by the global constant `REF_GRID_NC`.
-        - The coordinate keys to extract are defined in `GRID_COORD_KEYS`.
-        - The terrain-related variables are returned as a dictionary with lowercase keys
-          for consistency in downstream processing.
+    - xr.DataArray: An xarray.DataArray with assigned coordinates and chunks.
     """
-    # Reference grid paths
-    ref = xr.open_dataset(REF_GRID_NC, engine='netcdf4')
-
-    grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
-    grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
-    terrain = { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] }
-
-    return grid, grid_coords, terrain
-
-# -------------------------------------------------------------------
-# TReAD & ERA5 outputs
-# -------------------------------------------------------------------
-
-def generate_output_dataset(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
-    """
-    Generates output datasets for TReAD and ERA5 based on a specified date range
-    and a common reference grid.
-
-    This function first retrieves a reference grid, its coordinates, and terrain layer
-    information. It then uses this grid to generate two xarray.Dataset objects:
-    one representing TReAD output and another for ERA5 output, both
-    constrained by the given start and end dates.
-
-    Args:
-        start_date (str): The start date for generating the datasets in format "YYYYMMDD".
-        end_date (str): The end date for generating the datasets in format "YYYYMMDD".
-
-    Returns:
-        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
-            - tread_outputs (xr.Dataset): An xarray Dataset containing the
-                                          generated TReAD output data.
-            - era5_outputs (xr.Dataset): An xarray Dataset containing the
-                                         generated ERA5 output data.
-            - grid_coords (xr.Dataset): An xarray Dataset containing the
-                                        coordinates of the reference grid.
-    """
-    grid, grid_coords, terrain = get_ref_grid()
-
-    # TReAD
-    tread_pre_regrid, tread_out = get_tread_dataset(grid, start_date, end_date)
-    print(f"\nTReAD dataset =>\n {tread_out}")
-    tread_outputs = (
-        *get_cwb_fields(tread_out, get_tread_channels()),
-        tread_pre_regrid, tread_out
+    # Create the DataArray
+    dataarray = xr.DataArray(
+        stack_data,
+        dims=dims,
+        coords=coords,
+        name=name
     )
 
-    # ERA5
-    era5_pre_regrid, era5_out = get_era5_dataset(grid, terrain, start_date, end_date)
-    print(f"\nERA5 dataset =>\n {era5_out}")
-    era5_outputs = (
-        *get_era5_fields(era5_out, get_era5_channels()),
-        era5_pre_regrid, era5_out
-    )
+    # Assign daily floored time to the 'time' coordinate
+    dataarray = dataarray.assign_coords(time=dataarray["time"].dt.floor("D"))
 
-    return tread_outputs, era5_outputs, grid_coords
+    # Chunk the DataArray
+    dataarray = dataarray.chunk(chunk_sizes)
+
+    return dataarray
 
 # -------------------------------------------------------------------
 # High-res fields (cwb_*)
@@ -192,6 +151,7 @@ def get_cwb_fields(
         get_cwb_valid(highres_ds, cwb)
     )
 
+
 def get_cwb_pressure(cwb_channel: np.ndarray, channels: Dict[str, str]) -> xr.DataArray:
     """
     Create a DataArray for TReAD pressure levels.
@@ -213,6 +173,7 @@ def get_cwb_pressure(cwb_channel: np.ndarray, channels: Dict[str, str]) -> xr.Da
         name="cwb_pressure"
     )
 
+
 def get_cwb_variable(cwb_var_names: List[str], cwb_pressure: xr.DataArray,
                      channels: Dict[str, str]) -> xr.DataArray:
     """
@@ -232,6 +193,7 @@ def get_cwb_variable(cwb_var_names: List[str], cwb_pressure: xr.DataArray,
         coords={"cwb_pressure": cwb_pressure},
         name="cwb_variable"
     )
+
 
 def get_cwb(
         highres_ds: xr.Dataset,
@@ -274,6 +236,7 @@ def get_cwb(
 
     return create_and_process_dataarray("cwb", stack_da, cwb_dims, cwb_coords, cwb_chunk_sizes)
 
+
 def get_cwb_center(highres_ds: xr.Dataset, cwb_pressure: xr.DataArray,
                    cwb_variable: xr.DataArray) -> xr.DataArray:
     """
@@ -304,6 +267,7 @@ def get_cwb_center(highres_ds: xr.Dataset, cwb_pressure: xr.DataArray,
         },
         name="cwb_center"
     )
+
 
 def get_cwb_scale(highres_ds: xr.Dataset, cwb_pressure: xr.DataArray,
                   cwb_variable: xr.DataArray) -> xr.DataArray:
@@ -420,6 +384,7 @@ def get_era5_fields(
         get_era5_valid(era5)
     )
 
+
 def get_era5(lowres_ds: xr.Dataset, channels: dict) -> xr.DataArray:
     """
     Constructs a consolidated ERA5 DataArray by stacking specified variables across channels.
@@ -469,6 +434,7 @@ def get_era5(lowres_ds: xr.Dataset, channels: dict) -> xr.DataArray:
 
     return create_and_process_dataarray(
         "era5", stack_era5, era5_dims, era5_coords, era5_chunk_sizes)
+
 
 def get_era5_center(era5: xr.DataArray) -> xr.DataArray:
     """
@@ -526,6 +492,7 @@ def get_era5_scale(era5: xr.DataArray) -> xr.DataArray:
         },
         name="era5_scale"
     )
+
 
 def get_era5_valid(era5: xr.DataArray) -> xr.DataArray:
     """

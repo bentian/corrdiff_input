@@ -1,59 +1,88 @@
 """
-CorrDiff Dataset Generation and Zarr Storage.
+CorrDiff dataset generator: build, validate, and export multi-source inputs to Zarr.
 
-This script processes low-resolution (low-res) and high-resolution (high-res) datasets
-to generate a consolidated dataset, verify its integrity, and save it in Zarr format.
-It integrates multiple data processing modules and performs spatial regridding,
-variable aggregation, and data compression.
+This script orchestrates the end-to-end pipeline for creating CorrDiff-ready
+datasets from high-resolution (CWA TReAD / TaiESM 3.5 km) and low-resolution
+(ERA5 / TaiESM 100 km) sources on a common WRF-style reference grid.
 
-Features:
-- Processes low-res and high-res datasets for a specified date range.
-- Regrids datasets to a reference grid.
-- Generates a consolidated dataset with key variables and metrics:
-  - Center (mean)
-  - Scale (standard deviation)
-  - Validity masks
-- Verifies the structure and integrity of the dataset.
-- Saves the dataset in compressed Zarr format.
+Main responsibilities
+---------------------
+- Drive data loading and preprocessing via `data_builder`:
+    * `generate_cwa_outputs()`  - CWA / TReAD + ERA5 mode.
+    * `generate_ssp_outputs()`  - TaiESM 3.5 km + 100 km SSP mode.
+- Combine high-res and low-res tensors into a single `xarray.Dataset`
+  (`generate_output_dataset`).
+- Optionally dump pre- and post-regrid NetCDF snapshots for debugging
+  (`dump_regrid_netcdf` when `DEBUG` is True).
+- Verify that the final dataset meets CorrDiff geometry and metadata
+  requirements (`verify_dataset`).
+- Write the consolidated dataset to compressed Zarr storage
+  (`write_to_zarr`).
 
-Functions:
-- `generate_output_dataset`: Combines processed low-res and high-res data into
-                             a consolidated dataset.
-- `write_to_zarr`: Writes the consolidated dataset to Zarr format with compression.
-- `get_ref_grid`: Loads the reference grid dataset and extracts the required coordinates
-   & optionally terrain data.
-- `generate_corrdiff_zarr`: Orchestrates the generation, verification, and saving of the dataset.
-- `main`: Parses command-line arguments and triggers the dataset generation process.
+Usage
+-----
+Run from the command line:
 
-Dependencies:
-- `sys`: For command-line argument parsing.
-- `zarr`: For handling Zarr storage format.
-- `xarray`: For multi-dimensional labeled data operations.
-- `numpy`: For numerical operations.
-- `dask.diagnostics.ProgressBar`: For monitoring progress during dataset writing.
-- Modules:
-  - `cwa_data`: CWA mode related functions.
-  - `ssp_data`: SSP mode related functions.
-  - `util`: For utility functions like dataset verification and regridding.
+    CWA / TReAD + ERA5 mode:
+        python corrdiff_datagen.py <start_date> <end_date>
 
-Usage:
-    python corrdiff_datagen.py <start_date> <end_date>
+    SSP / TaiESM mode:
+        python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
 
-    Example:
-        python corrdiff_datagen.py 20180101 20180103
+Examples
+--------
+    python corrdiff_datagen.py 20180101 20180103
+    python corrdiff_datagen.py 20180101 20180103 ssp126
+
+The output is a validated CorrDiff-ready Zarr dataset named:
+
+    corrdiff_dataset_<start_date>_<end_date>.zarr
+    or
+    <ssp_level>_dataset_<start_date>_<end_date>.zarr
 """
 import sys
+from pathlib import Path
 
 import xarray as xr
 import numpy as np
 from numcodecs import Blosc
 from dask.diagnostics import ProgressBar
 
-import cwa_data as cwa
-import ssp_data as ssp
-from util import verify_dataset, dump_regrid_netcdf
+from data_builder import GRID_COORD_KEYS, generate_cwa_outputs, generate_ssp_outputs
 
 DEBUG = False  # Set to True to enable debugging
+
+def dump_regrid_netcdf(
+    subdir: str,
+    hr_pre_regrid: xr.Dataset,
+    hr_post_regrid: xr.Dataset,
+    lr_pre_regrid: xr.Dataset,
+    lr_post_regrid: xr.Dataset
+) -> None:
+    """
+    Saves the provided datasets to NetCDF files within a specified subdirectory.
+
+    Parameters:
+        subdir (str): The subdirectory path where the NetCDF files will be saved.
+        hr_pre_regrid (xr.Dataset): The high-resolution dataset before regridding.
+        hr_post_regrid (xr.Dataset): The high-resolution dataset after regridding.
+        lr_pre_regrid (xr.Dataset): The low-resolution dataset before regridding.
+        lr_post_regrid (xr.Dataset): The low-resolution dataset after regridding.
+
+    Returns:
+        None
+    """
+    folder = Path(f"./nc_dump/{subdir}")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    for dataset, name in [
+        (hr_pre_regrid, "highres_pre_regrid.nc"),
+        (hr_post_regrid, "highres_post_regrid.nc"),
+        (lr_pre_regrid, "lowres_pre_regrid.nc"),
+        (lr_post_regrid, "lowres_post_regrid.nc")
+    ]:
+        dataset.to_netcdf(folder / name)
+
 
 def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> xr.Dataset:
     """
@@ -71,8 +100,8 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> x
     """
     # Generate high-res and low-res output datasets
     hr_outputs, lr_outputs, grid_coords = (
-        ssp.generate_output_dataset(start_date, end_date, ssp_level)
-        if ssp_level else cwa.generate_output_dataset(start_date, end_date)
+        generate_ssp_outputs(start_date, end_date, ssp_level)
+        if ssp_level else generate_cwa_outputs(start_date, end_date)
     )
 
     # Group outputs into dictionaries
@@ -99,7 +128,7 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> x
             "era5_valid":  lr_data["era5_valid"],
         },
         coords={
-            **{key: grid_coords[key] for key in cwa.GRID_COORD_KEYS},
+            **{key: grid_coords[key] for key in GRID_COORD_KEYS},
             "XTIME": np.datetime64("2025-12-04 09:00:00", "ns"),  # Placeholder for timestamp
             "time": hr_data["cwb"].time,
             "cwb_variable": hr_data["cwb_variable"],
@@ -118,6 +147,57 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> x
         )
 
     return out
+
+
+def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
+    """
+    Verifies an xarray.Dataset to ensure:
+    1. Dimensions 'south_north' and 'west_east' are equal and both are multiples of 16.
+    2. The dataset includes all specified coordinates and data variables.
+
+    Parameters:
+    - dataset: xarray.Dataset to verify.
+
+    Returns:
+    - A tuple (bool, str) where:
+      - bool: True if the dataset passes all checks, False otherwise.
+      - str: A message describing the result.
+    """
+    # Required dimensions, coordinates and data variables
+    required_dims = [
+        "time", "south_north", "west_east", "cwb_channel", "era5_channel"
+    ]
+    required_coords = [
+        "time", "XLONG", "XLAT", "cwb_pressure", "cwb_variable",
+        "era5_scale", "era5_pressure", "era5_variable"
+    ]
+    required_vars = [
+        "cwb", "cwb_center", "cwb_scale", "cwb_valid",
+        "era5", "era5_center", "era5_valid"
+    ]
+
+    # Check required dimensions
+    missing_dims = [dim for dim in required_dims if dim not in ds.dims]
+    if missing_dims:
+        return False, f"Missing required dimensions: {', '.join(missing_dims)}."
+    if ds.sizes["south_north"] != ds.sizes["west_east"]:
+        return False, "Dimensions 'south_north' and 'west_east' are not equal."
+    if ds.sizes["south_north"] % 16 != 0:
+        return False, "Dimensions 'south_north' and 'west_east' are not multiples of 16."
+
+    # Check coordinates
+    missing_coords = [coord for coord in required_coords if coord not in ds.coords]
+    if missing_coords:
+        return False, f"Missing required coordinates: {', '.join(missing_coords)}."
+
+    # Check data variables
+    missing_vars = [var for var in required_vars if var not in ds.data_vars]
+    if missing_vars:
+        return False, f"Missing required data variables: {', '.join(missing_vars)}."
+
+    # All checks passed
+    return True, "Dataset verification passed successfully."
+
 
 def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
     """
@@ -138,6 +218,7 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
         out_ds.to_zarr(out_path, mode='w', encoding=encoding, compute=True, zarr_format=2)
 
     print(f"Data successfully saved to [{out_path}]")
+
 
 def generate_corrdiff_zarr(start_date: str, end_date: str, ssp_level: str = '') -> None:
     """
@@ -167,6 +248,7 @@ def generate_corrdiff_zarr(start_date: str, end_date: str, ssp_level: str = '') 
     prefix = ssp_level if ssp_level else "corrdiff"
     write_to_zarr(f"{prefix}_dataset_{start_date}_{end_date}.zarr", out)
 
+
 def validate_ssp_level(raw: str) -> str:
     """
     Validate and normalize an SSP suffix string.
@@ -176,6 +258,7 @@ def validate_ssp_level(raw: str) -> str:
         raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
 
     return raw
+
 
 def main():
     """
@@ -206,6 +289,7 @@ def main():
         generate_corrdiff_zarr(sys.argv[1], sys.argv[2])
     elif argc == 4:
         generate_corrdiff_zarr(sys.argv[1], sys.argv[2], validate_ssp_level(sys.argv[3]))
+
 
 if __name__ == "__main__":
     main()
