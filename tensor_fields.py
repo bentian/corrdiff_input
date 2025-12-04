@@ -1,5 +1,5 @@
 """
-Utility functions for constructing CorrDiff-ready CWB/TReAD and ERA5 tensors.
+Utility functions for constructing CorrDiff-ready high- and low-resolution tensors.
 
 This module centralizes the logic for turning gridded atmospheric datasets into
 stacked, normalized, Dask-backed `xarray.DataArray` objects with consistent
@@ -13,27 +13,27 @@ Main components
         coordinates, daily-floored time, and chunking patterns suitable
         for CorrDiff training and inference.
 
-- High-resolution (CWB / TReAD) fields:
+- High-resolution (cwb_*) fields:
     * `get_cwb_fields`:
         High-level entry point returning:
-          - `cwb`          : stacked CWB tensor,
+          - `cwb`          : stacked high-resolution tensor,
           - `cwb_variable` : per-channel variable names,
           - `cwb_center`   : per-channel mean,
           - `cwb_scale`    : per-channel standard deviation,
           - `cwb_valid`    : per-time validity mask.
     * `get_cwb`, `get_cwb_pressure`, `get_cwb_variable`,
       `get_cwb_center`, `get_cwb_scale`, `get_cwb_valid`:
-        Lower-level helpers used to build and describe the CWB tensor.
+        Lower-level helpers used to build and describe the high-resolution tensor.
 
-- Low-resolution (ERA5) fields:
+- Low-resolution (era5_*) fields:
     * `get_era5_fields`:
         High-level entry point returning:
-          - `era5`        : stacked ERA5 tensor,
+          - `era5`        : stacked low-resolution tensor,
           - `era5_center` : per-channel mean,
           - `era5_scale`  : per-channel standard deviation,
-          - `era5_valid`  : time-channel validity mask.
+          - `era5_valid`  : per-time validity mask.
     * `get_era5`, `get_era5_center`, `get_era5_scale`, `get_era5_valid`:
-        Lower-level helpers that assemble and normalize ERA5 input channels.
+        Lower-level helpers that assemble and normalize low-resolution tensor.
 
 All returned tensors are designed to be directly consumable by CorrDiff-style
 models, with consistent metadata (variable names, pressure levels) embedded as
