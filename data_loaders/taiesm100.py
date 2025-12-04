@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing
+from .util import is_local_testing
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [

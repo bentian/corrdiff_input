@@ -45,7 +45,7 @@ import dask.array as da
 import pandas as pd
 import xarray as xr
 
-from util import regrid_dataset, is_local_testing
+from .util import regrid_dataset, is_local_testing
 
 ERA5_CHANNELS = [
     {'name': 'tp', 'variable': 'precipitation'},

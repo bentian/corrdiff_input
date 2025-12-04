@@ -34,7 +34,7 @@ from typing import Dict, List, Tuple
 import pandas as pd
 import xarray as xr
 
-from util import is_local_testing, regrid_dataset
+from .util import is_local_testing, regrid_dataset
 
 TREAD_CHANNELS_ORIGINAL = {
     # Baseline
