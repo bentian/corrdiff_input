@@ -70,7 +70,7 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "./data/taiesm3p5" if is_local_testing() else \
+    return "../data/taiesm3p5" if is_local_testing() else \
             f"/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_{ssp_level}"
 
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:

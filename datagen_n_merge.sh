@@ -22,6 +22,7 @@ END_YEAR=$(echo "$END_DATE" | cut -c1-4)
 
 INTERVAL=8
 CURRENT_YEAR=$START_YEAR
+cd src || exit 1
 
 # Generate datasets for each 8-year interval
 while [ "$CURRENT_YEAR" -le "$END_YEAR" ]; do
