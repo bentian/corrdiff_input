@@ -56,16 +56,16 @@ conda env create -f yml/corrdiff_input.yml
 
 ## 1️⃣ Generate a Single CorrDiff Dataset
 
-- Basic usage (TReAD + ERA5 mode):
-
-  `python src/corrdiff_datagen.py <start_date> <end_date>`
-
+- CWA mode (TReAD + ERA5):
+  ```
+  python src/corrdiff_datagen.py <start_date> <end_date>
+  ```
   Example: `python src/corrdiff_datagen.py 20180101 20180131`
 
 - SSP mode (TaiESM 3.5 km + 100 km):
-
-  `python src/corrdiff_datagen.py <start_date> <end_date> <ssp_level>`
-
+  ```
+  python src/corrdiff_datagen.py <start_date> <end_date> <ssp_level>
+  ```
   Example: `python src/corrdiff_datagen.py 20180101 20180131 ssp585`
 
   This will:
@@ -93,12 +93,12 @@ nc_dump/<start_date>_<end_date>/
    lowres_post_regrid.nc
 ```
 
-
 ## 2️⃣ Generate Multi-Year Datasets (avoid OOM)
 
 For long time ranges (> 8 years):
-
-`./datagen_n_merge.sh <start_date> <end_date>`
+```
+./datagen_n_merge.sh <start_date> <end_date>
+```
 
 The script:
 - Splits the time range into periods <= 8 years
@@ -109,130 +109,157 @@ The reason is to avoid OOM on BIG server given dataset with > 8-year time range.
 
 ## 3️⃣ Inspect or Slice Zarr Files
 
-Inspect structure and preview slices:
+### Inspect structure and preview slices:
 
 ```
 python src/helpers/dump_zarr.py <input_zarr_file>
 ```
 
-Filter variables / time ranges:
+### Filter variables / time ranges:
 
-Revise `src/helpers/filter_zarr.py` and run
+_Revise file paths in `src/helpers/filter_zarr.py` and run_
 ```
 python src/helpers/filer_zarr.py
 ```
 
-Run `ref_grid/generate_wrf_coord.py` to generate REF grid for regridding ERA5 and TReAD datasets:
+### Merge many Zarr files:
 
+_Put all `corrdiff_*.zarr` under `src/helpers/` and run_
+```
+python src/helpers/merge_zarr.py
+```
+
+## 4️⃣ Generate Reference Grid
+
+### Create a new 208×208 WRF-style grid:
 ```
 cd ref_grid
 python generate_wrf_coord.py
 ```
 
-### Adjust REF grid size
+### Adjust grid size:
 
-1. Modify `ny` and `nx` in `generate_wrf_coord.py` to customize REF grid size:
+1. Modify `ny` and `nx` in `generate_wrf_coord.py`:
 
 ```
 ny, nx = 208, 208               # Desired grid dimensions
 ```
 
-2. Revise `REF_GRID_NC` in `corrdiff_datagen.py` acccordingly:
+2. Revise `*_REF_GRID` in `src/data_builder.py` acccordingly:
 
 ```
-REF_GRID_NC = "./ref_grid/wrf_208x208_grid_coords.nc"
+CWA_REF_GRID = "../ref_grid/wrf_208x208_grid_coords.nc"
+SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 ```
 
 # 📂 Project Structure
 
-## Prepare TReAD and ERA5 netcdf files (local testing only)
+## Prepare NetCDF files (for local testing only)
+
+### CWA mode
 - Put TReAD file below under `data/tread/`.
   - `wrfo2D_d02_{yyyymm}.nc`
 - Put ERA5 files below under `data/era5/`.
   - `ERA5_PRS_*_{yyyymm}_r1440x721_day.nc`
   - `ERA5_SFC_*_{yyyymm}_r1440x721_day.nc`
 
-## Example
+### SSP mode
+- Put TaiESM 3.5 km file below under `data/taiesm3p5/`.
+  - `wrfday_d01_201801.nc`
+- Put TaiESM 100 km below under `data/taiesm100/`.
+  - `TaiESM1_SFC_*_201801_r1440x721_day.nc`
+  - `TaiESM1_PRS_*_201801_r1440x721_day.nc`
 
+## Example
 ```
 📦 corrdiff_input
- ┣ 📂 data/                  # Input data (NetCDF files of ERA5 and TReAD datasets)
+ ┣ 📂 yml/      # YML files to create conda environment
+ ┣ 📂 data/     # Input data (NetCDF files of low- and high-resolution datasets)
    ┣ 📂 tread/
      ┗ 📜 wrfo2D_d02_201801.nc
    ┣ 📂 era5/
-     ┣ 📜 ERA5_PRS_q_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_PRS_r_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_PRS_t_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_PRS_u_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_PRS_v_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_PRS_w_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_PRS_z_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_SFC_msl_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_SFC_t2m_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_SFC_tp_201801_r1440x721_day.nc
-     ┣ 📜 ERA5_SFC_u10_201801_r1440x721_day.nc
-     ┗ 📜 ERA5_SFC_v10_201801_r1440x721_day.nc
+     ┣ 📜 ERA5_SFC_*_201801_r1440x721_day.nc
+     ┗ 📜 ERA5_PRS_*_201801_r1440x721_day.nc
+   ┣ 📂 taiesm3p5/
+     ┗ 📜 wrfday_d01_201801.nc
+   ┣ 📂 taiesm100/
+     ┣ 📜 TaiESM1_SFC_*_201801_r1440x721_day.nc
+     ┗ 📜 TaiESM1_PRS_*_201801_r1440x721_day.nc
    ┗ 📂 extreme_dates/
      ┣ 📜 extreme_dates.txt
      ┗ 📜 extreme_dates_histogram.png
  ┣ 📂 ref_grid/
-   ┣ 📜 generate_wrf_coord.py       # Generates REF grid
+   ┣ 📜 generate_wrf_coord.py       # REF grid generation script
    ┣ 📜 TReAD_wrf_d02_info.nc       # TReAD grid used to generate REF grid
-   ┗ 📜 wrf_208x208_grid_coords.nc  # Default 208 x 208 REF grid
- ┣ 📂 helpers/
-   ┣ 📜 dump_zarr.py          # Zarr data inspection
-   ┣ 📜 filter_zarr.py        # Zarr data extraction
-   ┗ 📜 merge_zarr.py         # Zarr file combination
- ┣ 📜 corrdiff_datagen.py     # Dataset generation script
- ┣ 📜 era5.py                 # ERA5 data processing
- ┣ 📜 tread.py                # TReAD data processing
- ┣ 📜 util.py                 # Utility functions for data transformation
+   ┣ 📜 wrf_208x208_grid_coords.nc  # CWA 208x208 REF grid
+   ┣ 📜 TAIESM_tw3.5km_coord2d.nc   # TaiESM 3.5 km grid used to generate REF grid
+   ┗ 📜 ssp_208x208_grid_coords.nc  # SSP 208x208 REF grid
+ ┣ 📂 src/
+   ┣ 📂 helpers/              # Zarr utilities & Geographic region plotting
+   ┣ 📂 data_loader/          # TReAD / ERA5 / TaiESM data loaders
+   ┣ 📜 corrdiff_datagen.py   # Zarr generation script
+   ┣ 📜 data_builder.py       # Low- and high-resolution dataset builder script
+   ┗ 📜 tensor_fields.py      # Tensor fields constructor for Zarr
  ┣ 📜 datagen_n_merge.sh      # Shell script to create and merge datasets
  ┗ 📜 README.md               # Project documentation
 ```
 
-📜 Script Descriptions
+📘 Script Overview
 
-🔹 `corrdiff_datagen.py` - Generate Processed Datasets
-  - Fetches datasets from multiple sources
-  - Regrids them to match a common grid
-  - Saves final dataset in Zarr format
+🔹 `src/corrdiff_datagen.py`
 
-🔹 `era5.py` - ERA5 Data Processing
-  - Loads ERA5 dataset
-  - Performs regridding and data aggregation
-  - Computes mean, standard deviation, and validity
+Main driver:
+- Loads datasets
+- Regrids to REF grid
+- Builds CorrDiff-ready tensors
+- Saves to Zarr
 
-🔹 `tread.py` - TReAD Data Processing
-  - Loads TReAD dataset
-  - Computes daily aggregated variables
-  - Regrids dataset for analysis
+🔹 `src/data_builder.py`
 
-🔹 `util.py` - General Utilities
-  - Provides data transformation, regridding, and verification utilities
+CorrDiff data assembly module:
+- Loads REF grid
+- Builds low- and high-resolution datasets
+- Converts datasets into CorrDiff-ready tensors
 
-🔹 `datagen_n_merge.sh` - Create and Merge Datasets
-  - Splits time range by 8-year interval, creates datasets per interval, and merges them into one
+🔹 `src/tensor_fields.py`
 
-🔹 `helpers/dump_zarr.py` - Inspect Zarr Datasets
-  - Inspects structure and data slices in Zarr files.
+Tensor creation logic:
+- Stacks channels
+- Normalizes data (center/scale)
+- Creates metadata
 
-🔹 `helpers/filter_zarr.py` - Extract Zarr Datasets
-  - Extracts data slices from one Zarr file and saves to another.
+🔹 `src/data_loaders/`
 
-🔹 `helpers/merge_zarr.py` - Combine Zarr Datasets
-  - Combines and saves multiple Zarr files into one Zarr file.
+- Loads datasets for:
+  - TReAD / ERA5
+  - TaiESM 3.5 km / 100 km
+- Provides utilities:
+  - Regridding (xesmf)
+  - File data format validation
 
-🔹 `ref_grid/generate_wrf_coord.py` - Extract Grid Coordinates
-  - Extracts and saves grid coordinates from datasets
+🔹 `src/helpers/`
+
+Post-processing & debugging:
+- Inspects single Zarr file
+- Merges multiple Zarr files
+- Filters data in Zarr by dates
+- Plots geographic region
+
+🔹 `ref_grid/`
+
+WRF-style reference grid creation.
+- Allows easy grid size customization (e.g., 208x208 -> any `ny` x `nx`)
+- Supports CWA and SSP modes for different configurations
 
 # 🎯 Why Use This Project?
 
-- ✅ Automates Data Extraction and Processing
-- ✅ Generates Ready-to-Use Datasets
-- ✅ Handles Large NetCDF & Zarr Datasets Efficiently
-- ✅ Supports Regridding, Verification, and Data Export
+- ✅ Automates multi-source climate dataset preparation
+- ✅ Ensures spatial & temporal consistency
+- ✅ Outputs CorrDiff-ready tensors
+- ✅ Handles large datasets via Dask & Zarr
+- ✅ Provides debugging & inspection tools
+- ✅ Extensible to new climate models
 
-# ⚡ Contributing
+# 🤝 Contributing
 
-Feel free to submit pull requests or open issues for improvements!
+PRs and issues are welcome! If integrating new datasets or grids, please document them clearly.
