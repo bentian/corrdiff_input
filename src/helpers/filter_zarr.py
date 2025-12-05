@@ -157,7 +157,7 @@ def filter_zarr_by_dates(file1: str, file2: str, zarr_path: str, output_path: st
     print(filtered_ds)
 
     # Save filtered dataset
-    filtered_ds.to_zarr(output_path, mode="w")
+    filtered_ds.to_zarr(output_path, mode="w", zarr_format=2)
 
     print(f"\nFiltered dataset saved to [{output_path}]")
 

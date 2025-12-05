@@ -77,8 +77,8 @@ def dump_zarr_fields(zarr_path: str) -> None:
     """
     # Open the Zarr file in consolidated mode
     group = zarr.open_consolidated(zarr_path)
-    num_cwb_channels = len(group['cwb_variable'])
-    num_era5_channels = len(group['era5_variable'])
+    num_cwb_channels = group['cwb_variable'].size
+    num_era5_channels = group['era5_variable'].size
 
     print("Zarr Group Tree Structure:")
     print(group.tree())

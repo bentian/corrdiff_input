@@ -1,9 +1,9 @@
 # 📌 Overview
 
 `corrdiff_input` is a data–preparation pipeline for constructing CorrDiff-ready Zarr datasets from multiple atmospheric data sources, including:
-- ERA5 (pressure-level & surface-level fields)
-- TReAD (CWB Taiwan reanalysis)
-- TaiESM 3.5 km / TaiESM 100 km (SSP climate scenarios)
+- ERA5 (ECMWF ReAnalysis v5)
+- TReAD (Taiwan ReAnalysis Downscaling Data)
+- TaiESM 3.5 km / TaiESM 100 km (Taiwan Earth System Model, for SSP climate scenarios)
 
 The pipeline:
 1. Loads raw NetCDF files
@@ -43,13 +43,12 @@ Creates:
 - Outputs compressed Zarr datasets
 - Tools for merging, slicing, and inspecting Zarr stores
 
-
 # 📦 Installation
 
 Before using the project, install the required dependencies:
 
 ```
-conda env create -f yml/corrdiff_input.yml
+conda env create -f env/corrdiff_input.yml
 ```
 
 # 🚀 Usage
@@ -68,15 +67,15 @@ conda env create -f yml/corrdiff_input.yml
   ```
   Example: `python src/corrdiff_datagen.py 20180101 20180131 ssp585`
 
-  This will:
-  - Load and regrid the input datasets
-  - Construct CorrDiff-formatted tensors
-  - Saves output to
-    ```
-    corrdiff_dataset_<start_date>_<end_date>.zarr
-    # or
-    corrdiff_dataset_<start_date>_<end_date>_<ssp_level>.zarr
-    ```
+This will:
+- Load and regrid the input datasets
+- Construct CorrDiff-formatted tensors
+- Saves output to
+  ```
+  corrdiff_dataset_<start_date>_<end_date>.zarr
+  # or
+  corrdiff_dataset_<start_date>_<end_date>_<ssp_level>.zarr
+  ```
 
 ### 🔍 Debugging Regridding Artifacts
 Enable NetCDF dumps in `src/corrdiff_datagen.py`:
@@ -98,6 +97,8 @@ nc_dump/<start_date>_<end_date>/
 For long time ranges (> 8 years):
 ```
 ./datagen_n_merge.sh <start_date> <end_date>
+# or
+./datagen_n_merge.sh <start_date> <end_date> <ssp_level>
 ```
 
 The script:
@@ -158,10 +159,10 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 
 ### CWA mode
 - Put TReAD file below under `data/tread/`.
-  - `wrfo2D_d02_{yyyymm}.nc`
+  - `wrfo2D_d02_201801.nc`
 - Put ERA5 files below under `data/era5/`.
-  - `ERA5_PRS_*_{yyyymm}_r1440x721_day.nc`
-  - `ERA5_SFC_*_{yyyymm}_r1440x721_day.nc`
+  - `ERA5_PRS_*_201801_r1440x721_day.nc`
+  - `ERA5_SFC_*_201801_r1440x721_day.nc`
 
 ### SSP mode
 - Put TaiESM 3.5 km file below under `data/taiesm3p5/`.
@@ -173,7 +174,7 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 ## Example
 ```
 📦 corrdiff_input
- ┣ 📂 yml/      # YML files to create conda environment
+ ┣ 📂 env/      # YML files to create conda environment
  ┣ 📂 data/     # Input data (NetCDF files of low- and high-resolution datasets)
    ┣ 📂 tread/
      ┗ 📜 wrfo2D_d02_201801.nc

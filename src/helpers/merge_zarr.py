@@ -135,7 +135,7 @@ def main():
     print(combined)
 
     # Save the combined dataset to a new Zarr file
-    combined.to_zarr('./combined.zarr')
+    combined.to_zarr('./combined.zarr', zarr_format=2)
 
 if __name__ == "__main__":
     main()

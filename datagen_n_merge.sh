@@ -56,7 +56,5 @@ fi
 
 echo "Merging all datasets into [$MERGED_ZARR] ..."
 
-cd helpers || exit 1
-mv ../corrdiff*.zarr .
-python merge_zarr.py
+python helpers/merge_zarr.py
 mv combined.zarr "$MERGED_ZARR"
