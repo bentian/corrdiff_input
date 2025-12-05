@@ -105,7 +105,7 @@ def get_data_dir() -> str:
     parts of the codebase can access ERA5 data without needing to know
     where it is stored.
     """
-    return "./data/era5" if is_local_testing() else "/lfs/archive/Reanalysis/ERA5"
+    return "../data/era5" if is_local_testing() else "/lfs/archive/Reanalysis/ERA5"
 
 def get_prs_paths(
     folder: str,
@@ -314,11 +314,12 @@ def get_era5_dataset(
 
     # Process and merge surface, pressure levels, and orography data
     era5_sfc = get_surface_data(folder, duration)
-    era5 = xr.merge([
+    era5_parts = [
         era5_sfc,
         get_pressure_level_data(folder, duration),
-        get_era5_orography(folder, era5_sfc.time)
-    ], compat="no_conflicts")
+        get_era5_orography(folder, era5_sfc.time),
+    ]
+    era5 = xr.merge(era5_parts, compat="no_conflicts").drop_vars("time_bnds", errors="ignore")
 
     # Crop to Taiwan domain given ERA5 is global data.
     lat, lon = grid.XLAT, grid.XLONG

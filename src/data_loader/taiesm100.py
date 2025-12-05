@@ -88,7 +88,7 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "./data/taiesm100" if is_local_testing() else \
+    return "../data/taiesm100" if is_local_testing() else \
             f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/"
 
 def get_prs_paths(

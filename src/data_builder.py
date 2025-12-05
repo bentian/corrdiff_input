@@ -47,7 +47,7 @@ CorrDiff-ready tensors.
 from typing import Tuple
 import xarray as xr
 
-from data_loaders import (
+from data_loader import (
     get_tread_dataset, get_tread_channels,
     get_era5_dataset, get_era5_channels,
     get_taiesm3p5_dataset, get_taiesm3p5_channels,
@@ -58,8 +58,8 @@ from tensor_fields import get_cwb_fields, get_era5_fields
 # -------------------------------------------------------------------
 # REF grid
 # -------------------------------------------------------------------
-CWA_REF_GRID = "./ref_grid/wrf_208x208_grid_coords.nc"
-SSP_REF_GRID = "./ref_grid/ssp_208x208_grid_coords.nc"
+CWA_REF_GRID = "../ref_grid/wrf_208x208_grid_coords.nc"
+SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
 
 
