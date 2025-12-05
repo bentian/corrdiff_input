@@ -107,24 +107,24 @@ The script:
 
 The reason is to avoid OOM on BIG server given dataset with > 8-year time range.
 
-## 3️⃣ Inspect or Slice Zarr Files
+## 3️⃣ Inspect / Filter / Merge Zarr Files
 
-### Inspect structure and preview slices:
+### Inspect structure and preview slices
 
 ```
 python src/helpers/dump_zarr.py <input_zarr_file>
 ```
 
-### Filter variables / time ranges:
+### Filter data by dates
 
-_Revise file paths in `src/helpers/filter_zarr.py` and run_
+_Revise file paths in `src/helpers/filter_zarr.py` and run:_
 ```
 python src/helpers/filer_zarr.py
 ```
 
-### Merge many Zarr files:
+### Merge multiple Zarr files
 
-_Put all `corrdiff_*.zarr` under `src/helpers/` and run_
+_Put all `corrdiff_*.zarr` files under `src/helpers/` and run:_
 ```
 python src/helpers/merge_zarr.py
 ```
@@ -204,9 +204,9 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
  ┗ 📜 README.md               # Project documentation
 ```
 
-📘 Script Overview
+# 📘 Script Overview
 
-🔹 `src/corrdiff_datagen.py`
+### 🔹 `src/corrdiff_datagen.py`
 
 Main driver:
 - Loads datasets
@@ -214,21 +214,21 @@ Main driver:
 - Builds CorrDiff-ready tensors
 - Saves to Zarr
 
-🔹 `src/data_builder.py`
+### 🔹 `src/data_builder.py`
 
 CorrDiff data assembly module:
 - Loads REF grid
 - Builds low- and high-resolution datasets
 - Converts datasets into CorrDiff-ready tensors
 
-🔹 `src/tensor_fields.py`
+### 🔹 `src/tensor_fields.py`
 
 Tensor creation logic:
 - Stacks channels
 - Normalizes data (center/scale)
 - Creates metadata
 
-🔹 `src/data_loaders/`
+### 🔹 `src/data_loaders/`
 
 - Loads datasets for:
   - TReAD / ERA5
@@ -237,7 +237,7 @@ Tensor creation logic:
   - Regridding (xesmf)
   - File data format validation
 
-🔹 `src/helpers/`
+### 🔹 `src/helpers/`
 
 Post-processing & debugging:
 - Inspects single Zarr file
@@ -245,7 +245,7 @@ Post-processing & debugging:
 - Filters data in Zarr by dates
 - Plots geographic region
 
-🔹 `ref_grid/`
+### 🔹 `ref_grid/`
 
 WRF-style reference grid creation.
 - Allows easy grid size customization (e.g., 208x208 -> any `ny` x `nx`)
