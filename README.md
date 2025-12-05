@@ -1,56 +1,126 @@
 # 📌 Overview
-This project provides a set of tools to processing, merging, and exporting scientific datasets.. It includes:
 
-- Data extraction and conversion from ERA5 and TReAD datasets
-- Processing and regridding for dataset compatibility
-- Exporting processed data into structured formats (Zarr, NetCDF)
+`corrdiff_input` is a data–preparation pipeline for constructing CorrDiff-ready Zarr datasets from multiple atmospheric data sources, including:
+- ERA5 (pressure-level & surface-level fields)
+- TReAD (CWB Taiwan reanalysis)
+- TaiESM 3.5 km / TaiESM 100 km (SSP climate scenarios)
+
+The pipeline:
+1. Loads raw NetCDF files
+2. Regrids all datasets onto a unified WRF-style reference grid
+3. Normalizes, centers & stacks channels into CorrDiff-compatible tensors
+4. Outputs the consolidated dataset as a compressed Zarr store
+
+# 🗂 Features
+✅ Unified Reference Grid
+
+Creates or loads a consistent **208×208 WRF-style grid**.
+
+✅ Multi-source Dataset Loading
+
+Supports:
+- ERA5 surface (SFC)
+- ERA5 pressure-level (PRS)
+- TReAD high-resolution fields
+- TaiESM 3.5 km / 100 km (SSP scenarios)
+
+✅ Regridding & Spatial Alignment
+
+Built-in utilities for:
+- Bilinear interpolation
+- Nearest-cell extrapolation
+- Optional custom grid generation
+
+✅ CorrDiff-Ready Tensor Construction
+
+Creates:
+- `cwb_*` (TReAD / TaiESM 3.5km)
+- `era5_*` (ERA5 / TaiESM 100km)
+- Associated metadata: center, scale, variable names, masks
+
+✅ Zarr Export & Validation
+
+- Outputs compressed Zarr datasets
+- Tools for merging, slicing, and inspecting Zarr stores
+
 
 # 📦 Installation
 
 Before using the project, install the required dependencies:
 
 ```
-conda env create -f corrdiff_input.yml
+conda env create -f yml/corrdiff_input.yml
 ```
 
 # 🚀 Usage
 
-## 1️⃣ Generate Processed Datasets
+## 1️⃣ Generate a Single CorrDiff Dataset
 
-Run the dataset generation script:
+- Basic usage (TReAD + ERA5 mode):
 
-`python corrdiff_datagen.py <start_date> <end_date>`
+  `python src/corrdiff_datagen.py <start_date> <end_date>`
 
-Example
+  Example: `python src/corrdiff_datagen.py 20180101 20180131`
 
-`python corrdiff_datagen.py 20180101 20180105`
+- SSP mode (TaiESM 3.5 km + 100 km):
 
-- Fetches data from various sources
-- Regrids datasets to match reference grid
-- Saves output in Zarr format
+  `python src/corrdiff_datagen.py <start_date> <end_date> <ssp_level>`
 
-### Dump data for debugging
-Set `DEBUG=True` in `corrdiff_datagen.py` to dump ERA5 & TReAD pre- and post-regridding data into netcdf files.
+  Example: `python src/corrdiff_datagen.py 20180101 20180131 ssp585`
 
+  This will:
+  - Load and regrid the input datasets
+  - Construct CorrDiff-formatted tensors
+  - Saves output to
+    ```
+    corrdiff_dataset_<start_date>_<end_date>.zarr
+    # or
+    corrdiff_dataset_<start_date>_<end_date>_<ssp_level>.zarr
+    ```
+
+### 🔍 Debugging Regridding Artifacts
+Enable NetCDF dumps in `src/corrdiff_datagen.py`:
 ```
 DEBUG = True  # Set to True to enable debugging
 ```
 
-### Generate > 8-year dataset
+This writes:
+```
+nc_dump/<start_date>_<end_date>/
+   highres_pre_regrid.nc
+   highres_post_regrid.nc
+   lowres_pre_regrid.nc
+   lowres_post_regrid.nc
+```
 
-Run `datagen_n_merge.sh` to create multiple datasets and merge into one:
+
+## 2️⃣ Generate Multi-Year Datasets (avoid OOM)
+
+For long time ranges (> 8 years):
 
 `./datagen_n_merge.sh <start_date> <end_date>`
 
+The script:
+- Splits the time range into periods <= 8 years
+- Generates Zarr files per period
+- Merges them into a single consolidated Zarr store
+
 The reason is to avoid OOM on BIG server given dataset with > 8-year time range.
 
-## 2️⃣ Dump Zarr Data
+## 3️⃣ Inspect or Slice Zarr Files
 
-Run `helpers/dump_zarr.py` to dump Zarr data and its data slices:
+Inspect structure and preview slices:
 
-`python helpers/dump_zarr.py <input_zarr_file>`
+```
+python src/helpers/dump_zarr.py <input_zarr_file>
+```
 
-## 3️⃣ Generate REF grid file for output Zarr
+Filter variables / time ranges:
+
+Revise `src/helpers/filter_zarr.py` and run
+```
+python src/helpers/filer_zarr.py
+```
 
 Run `ref_grid/generate_wrf_coord.py` to generate REF grid for regridding ERA5 and TReAD datasets:
 
