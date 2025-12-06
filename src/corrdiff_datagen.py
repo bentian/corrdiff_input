@@ -2,14 +2,14 @@
 CorrDiff dataset generator: build, validate, and export multi-source inputs to Zarr.
 
 This script orchestrates the end-to-end pipeline for creating CorrDiff-ready
-datasets from high-resolution (CWA TReAD / TaiESM 3.5 km) and low-resolution
+datasets from high-resolution (TReAD / TaiESM 3.5 km) and low-resolution
 (ERA5 / TaiESM 100 km) sources on a common WRF-style reference grid.
 
 Main responsibilities
 ---------------------
 - Drive data loading and preprocessing via `data_builder`:
-    * `generate_cwa_outputs()`  - CWA / TReAD + ERA5 mode.
-    * `generate_ssp_outputs()`  - TaiESM 3.5 km + 100 km SSP mode.
+    * `generate_cwa_outputs()`  - TReAD + ERA5.
+    * `generate_ssp_outputs()`  - TaiESM 3.5 km + 100 km.
 - Combine high-res and low-res tensors into a single `xarray.Dataset`
   (`generate_output_dataset`).
 - Optionally dump pre- and post-regrid NetCDF snapshots for debugging
@@ -129,7 +129,7 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> x
         },
         coords={
             **{key: grid_coords[key] for key in GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2025-12-04 09:00:00", "ns"),  # Placeholder for timestamp
+            "XTIME": np.datetime64("2025-12-06 09:00:00", "ns"),  # Placeholder for timestamp
             "time": hr_data["cwb"].time,
             "cwb_variable": hr_data["cwb_variable"],
             "era5_scale": ("era5_channel", lr_data["era5_scale"].data),
@@ -140,10 +140,8 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> x
     if DEBUG:
         dump_regrid_netcdf(
             f"{start_date}_{end_date}",
-            hr_data["pre_regrid"],
-            hr_data["post_regrid"],
-            lr_data["pre_regrid"],
-            lr_data["post_regrid"],
+            hr_data["pre_regrid"], hr_data["post_regrid"],
+            lr_data["pre_regrid"], lr_data["post_regrid"],
         )
 
     return out

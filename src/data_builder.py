@@ -1,10 +1,10 @@
 """
-CorrDiff reference-grid utilities for constructing high-resolution (CWB/TReAD)
-and low-resolution (ERA5 / TaiESM) datasets on a unified WRF-style domain.
+CorrDiff reference-grid utilities for constructing high-resolution (TReAD / TaiESM 3.5 km)
+and low-resolution (ERA5 / TaiESM 100 km) datasets on a unified WRF-style domain.
 
 This module centralizes the logic required to align multi-source atmospheric
 datasets—CWA TReAD, ERA5, TaiESM 3.5 km, and TaiESM 100 km—onto a common
-208×208 reference grid used by CorrDiff for training and inference.
+208x208 reference grid used by CorrDiff for training and inference.
 
 Main capabilities
 -----------------
@@ -16,14 +16,14 @@ Main capabilities
        * optional terrain fields (TER, SLOPE, ASPECT).
 
 2. Dataset generation pipelines
-   - `generate_cwa_outputs()` builds TReAD (CWB) + ERA5 datasets on the
+   - `generate_cwa_outputs()` builds TReAD + ERA5 datasets on the
      reference grid over a given date range.
    - `generate_ssp_outputs()` builds TaiESM 3.5 km + TaiESM 100 km datasets
      for a selected Shared Socioeconomic Pathway (SSP).
 
 3. Field-assembly helpers
    - All outputs are converted into standardized “CorrDiff-ready” tensors via:
-       * `get_cwb_fields()` for high-resolution TReAD / CWB fields.
+       * `get_cwb_fields()` for high-resolution TReAD / TaiESM 3.5 km fields.
        * `get_era5_fields()` for low-resolution ERA5 / TaiESM 100 km fields.
    - Each helper returns:
        * normalized / centered fields,

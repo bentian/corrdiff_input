@@ -178,14 +178,6 @@ def main():
         3. **Save Filtered Data:**
            - The filtered dataset is saved as `extreme_dataset.zarr`.
 
-    Inputs:
-        - `../archive/merged_dataset_00-23.zarr`: The full input dataset.
-        - `../data/extreme_dates/TCdays_300km_JTWC_2000_2023.txt`: List of typhoon-related dates.
-        - `../data/extreme_dates/2000_2023_MJ_extremed1.txt`: List of extreme precipitation dates.
-
-    Outputs:
-        - `"extreme_dataset.zarr"`: A dataset containing only the selected extreme weather dates.
-
     Notes:
         - The function assumes the **input Zarr file** has a **"time" coordinate**.
         - The text files must contain **dates in YYYYMMDD format**, one per line.

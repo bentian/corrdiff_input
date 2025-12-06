@@ -182,6 +182,7 @@ def get_cwb_variable(cwb_var_names: List[str], cwb_pressure: xr.DataArray,
     Parameters:
         cwb_var_names (array-like): Array of TReAD variable names.
         cwb_pressure (xarray.DataArray): DataArray of TReAD pressure levels.
+        channels (dict): Mapping of variable names used to determine the number of channels.
 
     Returns:
         xarray.DataArray: DataArray representing TReAD variables.
@@ -346,7 +347,7 @@ def get_era5_fields(
     - The stacked ERA5 tensor (`era5`)
     - Per-channel mean offsets (`era5_center`)
     - Per-channel standard deviations (`era5_scale`)
-    - A time–channel validity mask (`era5_valid`)
+    - A per-time validity mask (`era5_valid`)
 
     Parameters
     ----------
@@ -391,6 +392,7 @@ def get_era5(lowres_ds: xr.Dataset, channels: dict) -> xr.DataArray:
 
     Parameters:
         lowres_ds (xarray.Dataset): The processed ERA5 dataset after regridding.
+        channels (dict): Mapping of variable names used to determine the number of channels.
 
     Returns:
         xarray.DataArray: A DataArray containing the stacked ERA5 variables across
