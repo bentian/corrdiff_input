@@ -21,7 +21,7 @@ preprocessing steps before further regridding, stacking into CorrDiff-ready
 tensors, or model training / inference.
 """
 from pathlib import Path
-from typing import List
+from typing import List, Iterable
 
 import numpy as np
 import xesmf as xe
@@ -64,7 +64,149 @@ def regrid_dataset(ds: xr.Dataset, grid: xr.Dataset) -> xr.Dataset:
     return ds_regrid
 
 
-def normalize_time_coord_to_datetime64(ds: xr.Dataset, errors: list) -> xr.Dataset:
+def verify_lowres_sfc_format(ds: xr.Dataset) -> bool:
+    """
+    Verify that a dataset matches the expected SFC format.
+
+    Expected format:
+        Dimensions: time, latitude, longitude
+        Coordinates:
+            - time:      datetime64[ns]
+            - latitude:  1D
+            - longitude: 1D
+        Variables (at least):
+            - t2m:       (time, latitude, longitude)
+            - tp:        (time, latitude, longitude)
+            - u10:       (time, latitude, longitude)
+            - v10:       (time, latitude, longitude)
+
+    Returns
+    -------
+    bool
+        True if dataset passes all checks, False otherwise.
+    """
+    label = "SFC"
+    errors: List[str] = []
+
+    # 1. Required dims/coords
+    _check_required_dims(ds, ["time", "latitude", "longitude"], errors, label)
+    _check_required_coords(ds, ["time", "latitude", "longitude"], errors, label)
+
+    if errors:
+        _print_report("✗ DATASET FAILED SFC BASIC CHECKS:", errors)
+        return False
+
+    # 2. Time coordinate (object -> datetime64, or error)
+    ds = _normalize_time_coord_to_datetime64(ds, errors)
+
+    # 3. Numeric coord checks for lat/lon
+    _check_numeric_coords(ds, ["latitude", "longitude"], errors, label)
+
+    # 4. 1D lat/lon
+    _check_1d_coords(ds, ["latitude", "longitude"], errors, label)
+
+    # 5–6. Variables: presence, dims, dtype
+    required_vars = ["tp", "t2m", "u10", "v10"]
+    field_dims = ("time", "latitude", "longitude")
+    _check_vars_dims_and_dtype(ds, required_vars, field_dims, errors, label)
+
+    # Final report
+    if errors:
+        _print_report("✗ DATASET FAILED SFC VALIDATION:", errors)
+        return False
+
+    print("✓ Dataset matches expected low-res SFC format.")
+    return True
+
+
+def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
+    """
+    Verify that a dataset matches the expected ERA5 PRS (pressure-level) format.
+
+    Expected format:
+        Dimensions:
+            - time
+            - level
+            - latitude
+            - longitude
+
+        Coordinates:
+            - time:      datetime64[ns]
+            - level:     [500, 700, 850, 925] (hPa) subset of dataset levels
+            - latitude:  1D
+            - longitude: 1D
+
+        Data variables (at least):
+            - time_bnds: (time, bnds), datetime64[ns]
+            - z, t, u, v: (time, level, latitude, longitude)
+
+    Returns
+    -------
+    bool
+        True if dataset passes all checks, False otherwise.
+    """
+    label = "PRS"
+    errors: List[str] = []
+
+    # 1. Required dims/coords
+    _check_required_dims(ds, ["time", "level", "latitude", "longitude"], errors, label)
+    _check_required_coords(ds, ["time", "level", "latitude", "longitude"], errors, label)
+
+    if errors:
+        _print_report("✗ DATASET FAILED PRS BASIC CHECKS:", errors)
+        return False
+
+    # 2. Time coordinate (object -> datetime64, or error)
+    ds = _normalize_time_coord_to_datetime64(ds, errors)
+
+    # 3. Numeric coords (level, lat, lon)
+    _check_numeric_coords(ds, ["level", "latitude", "longitude"], errors, label)
+
+    # 4. 1D lat/lon
+    _check_1d_coords(ds, ["latitude", "longitude"], errors, label)
+
+    # 5. Required pressure levels (subset)
+    try:
+        level = ds["level"].values.astype(float)
+        required_levels = np.array([500.0, 700.0, 850.0, 925.0], dtype=float)
+
+        if level.ndim != 1:
+            errors.append(f"{label}: level coordinate must be 1D")
+        else:
+            missing_levels = required_levels[~np.isin(required_levels, level)]
+            if missing_levels.size > 0:
+                errors.append(
+                    f"{label}: missing required pressure levels: "
+                    f"{missing_levels.tolist()}. "
+                    f"Dataset contains: {level.tolist()}"
+                )
+
+            extra_levels = level[~np.isin(level, required_levels)]
+            if extra_levels.size > 0:
+                errors.append(
+                    f"{label}: WARNING: dataset contains extra pressure levels "
+                    f"beyond expected subset: {extra_levels.tolist()}"
+                )
+
+    except (KeyError, AttributeError, TypeError, ValueError) as exc:
+        errors.append(f"{label}: failed checking 'level' coordinate values: {exc}")
+
+    # 6–7. Variables: presence, dims, dtype
+    required_4d_vars = ["z", "t", "u", "v"]
+    expected_var_dims = ("time", "level", "latitude", "longitude")
+    _check_vars_dims_and_dtype(ds, required_4d_vars, expected_var_dims, errors, label)
+
+    # Final report
+    if errors:
+        _print_report("✗ DATASET FAILED PRS VALIDATION:", errors)
+        return False
+
+    print("✓ Dataset matches expected low-res PRS format.")
+    return True
+
+# ---------- Shared helpers ----------
+
+def _normalize_time_coord_to_datetime64(ds: xr.Dataset, errors: list) -> xr.Dataset:
     """
     Ensure ds['time'] is datetime64[ns].
 
@@ -108,264 +250,105 @@ def normalize_time_coord_to_datetime64(ds: xr.Dataset, errors: list) -> xr.Datas
     return ds
 
 
-def verify_lowres_sfc_format(ds: xr.Dataset):
-    """
-    Verify that a dataset matches the expected SFC format
-
-    Expected format:
-        Dimensions: time, latitude, longitude
-        Coordinates:
-            - time:      datetime64[ns]
-            - latitude:  1D
-            - longitude: 1D
-        Variables (at least):
-            - time_bnds: (time, bnds), datetime64[ns]
-            - t2m:       (time, latitude, longitude)
-            - tp:        (time, latitude, longitude)
-            - u10:       (time, latitude, longitude)
-            - v10:       (time, latitude, longitude)
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-        Dataset to validate.
-
-    Returns
-    -------
-    bool
-        True if dataset passes all checks, False otherwise.
-    """
-    errors: List[str] = []
-
-    # ---- 1. Required dimensions ----
-    for dim in ["time", "latitude", "longitude"]:
+def _check_required_dims(
+    ds: xr.Dataset,
+    required_dims: Iterable[str],
+    errors: List[str],
+    label: str,
+) -> None:
+    """Append errors if any required dimensions are missing."""
+    for dim in required_dims:
         if dim not in ds.dims:
-            errors.append(f"Missing required dimension: '{dim}'")
+            errors.append(f"{label}: missing required dimension '{dim}'")
 
-    # ---- 2. Required coordinates ----
-    for coord in ["time", "latitude", "longitude"]:
+
+def _check_required_coords(
+    ds: xr.Dataset,
+    required_coords: Iterable[str],
+    errors: List[str],
+    label: str,
+) -> None:
+    """Append errors if any required coordinates are missing."""
+    for coord in required_coords:
         if coord not in ds.coords:
-            errors.append(f"Missing required coordinate '{coord}'")
+            errors.append(f"{label}: missing required coordinate '{coord}'")
 
-    # Stop here if coords missing (prevents cascade failures)
-    if errors:
-        print("=" * 50)
-        print("✗ DATASET FAILED SFC BASIC CHECKS:")
-        for err in errors:
-            print("  -", err)
-        print("=" * 50)
-        return False
 
-    # ---- 3. Coordinate dtype & basic checks ----
-    # time (now tolerant of object -> converts)
-    ds = normalize_time_coord_to_datetime64(ds, errors)
-
-    # latitude / longitude numeric and finite
-    for name in ["latitude", "longitude"]:
+def _check_numeric_coords(
+    ds: xr.Dataset,
+    coord_names: Iterable[str],
+    errors: List[str],
+    label: str,
+    check_fill: bool = True,
+) -> None:
+    """Check that given coordinates are numeric and (optionally) free of ERA5 fill values."""
+    for name in coord_names:
         try:
             arr = ds[name].values
             if not np.issubdtype(arr.dtype, np.number):
                 errors.append(
-                    f"{name} coordinate must be numeric, got {arr.dtype}"
+                    f"{label}: {name} coordinate must be numeric, got {arr.dtype}"
                 )
-            if np.any(np.isclose(arr, 9.969e36)):
+            if check_fill and np.any(np.isclose(arr, 9.969e36)):
                 errors.append(
-                    f"{name} coordinate contains fill values (9.969e36)"
+                    f"{label}: {name} coordinate contains fill values (9.969e36)"
                 )
         except (KeyError, AttributeError, TypeError, ValueError) as exc:
-            errors.append(f"Failed checking coordinate '{name}': {exc}")
+            errors.append(f"{label}: failed checking coordinate '{name}': {exc}")
 
-    # ---- 4. Enforce 1-D shapes ----
-    try:
-        if ds["latitude"].values.ndim != 1:
-            errors.append("latitude must be 1D")
-        if ds["longitude"].values.ndim != 1:
-            errors.append("longitude must be 1D")
-    except (KeyError, AttributeError, TypeError) as exc:
-        errors.append(f"Failed checking lat/lon dimensionality: {exc}")
 
-    # ---- 5. Required variables ----
-    required_vars = ["tp", "t2m", "u10", "v10"]
-    missing = [v for v in required_vars if v not in ds.data_vars]
+def _check_1d_coords(
+    ds: xr.Dataset,
+    coord_names: Iterable[str],
+    errors: List[str],
+    label: str,
+) -> None:
+    """Check that given coordinates are 1D."""
+    for name in coord_names:
+        try:
+            if ds[name].values.ndim != 1:
+                errors.append(f"{label}: {name} must be 1D")
+        except (KeyError, AttributeError, TypeError) as exc:
+            errors.append(
+                f"{label}: failed checking dimensionality of '{name}': {exc}"
+            )
+
+
+def _check_vars_dims_and_dtype(
+    ds: xr.Dataset,
+    var_names: Iterable[str],
+    expected_dims: tuple,
+    errors: List[str],
+    label: str,
+) -> None:
+    """Check that given variables exist, have expected dims and numeric dtype."""
+    missing = [v for v in var_names if v not in ds.data_vars]
     if missing:
-        errors.append(f"Missing required data variables: {missing}")
+        errors.append(f"{label}: missing required variable(s): {missing}")
 
-    # ---- 6. Variable dtype & shapes ----
-    field_dims = ("time", "latitude", "longitude")
-    for var_name in required_vars:
-        if var_name not in ds.data_vars:
-            continue  # already reported above
+    for name in var_names:
+        if name not in ds.data_vars:
+            continue  # already reported as missing
         try:
-            var = ds[var_name]
-            if var.dims != field_dims:
+            var = ds[name]
+            if var.dims != expected_dims:
                 errors.append(
-                    f"{var_name} must have dims {field_dims}, got {var.dims}"
+                    f"{label}: {name} must have dims {expected_dims}, got {var.dims}"
                 )
             if not np.issubdtype(var.dtype, np.number):
                 errors.append(
-                    f"{var_name} must be numeric, got dtype {var.dtype}"
+                    f"{label}: {name} must be numeric, got dtype {var.dtype}"
                 )
         except (KeyError, AttributeError, TypeError, ValueError) as exc:
-            errors.append(f"Failed checking variable '{var_name}': {exc}")
+            errors.append(f"{label}: failed checking variable '{name}': {exc}")
 
-    # ---- FINAL REPORT ----
-    if errors:
-        print("=" * 50)
-        print("✗ DATASET FAILED SFC VALIDATION:")
-        for err in errors:
-            print("  -", err)
+
+def _print_report(header: str, errors: List[str]) -> None:
+    """Pretty-print validation report."""
+    print("=" * 50)
+    print(header)
+    for err in errors:
+        print("  -", err)
+    if "FAILED" in header:
         print("\nTotal errors:", len(errors))
-        print("=" * 50)
-        return False
-
-    print("✓ Dataset matches expected low-res SFC format.")
-    return True
-
-
-def verify_lowres_prs_format(ds: xr.Dataset):
-    """
-    Verify that a dataset matches the expected ERA5 PRS (pressure-level) format.
-
-    Expected format:
-        Dimensions:
-            - time
-            - level
-            - latitude
-            - longitude
-
-        Coordinates:
-            - time:      datetime64[ns]
-            - level:     [500, 700, 850, 925] (hPa)
-            - latitude:  1D
-            - longitude: 1D
-
-        Data variables (at least):
-            - time_bnds: (time, bnds), datetime64[ns]
-            - z, t, u, v: (time, level, latitude, longitude)
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-        Dataset to validate.
-
-    Returns
-    -------
-    bool
-        True if dataset passes all checks, False otherwise.
-    """
-    errors: List[str] = []
-
-    # ---- 1. Required dimensions ----
-    for dim in ["time", "level", "latitude", "longitude"]:
-        if dim not in ds.dims:
-            errors.append(f"Missing required dimension: '{dim}'")
-
-    # ---- 2. Required coordinates ----
-    for coord in ["time", "level", "latitude", "longitude"]:
-        if coord not in ds.coords:
-            errors.append(f"Missing required coordinate '{coord}'")
-
-    # If basic structure is missing, don't try to access non-existent vars
-    if errors:
-        print("=" * 50)
-        print("✗ DATASET FAILED PRS BASIC CHECKS:")
-        for err in errors:
-            print("  -", err)
-        print("\nTotal errors:", len(errors))
-        print("=" * 50)
-        return False
-
-    # ---- 3. Coordinate dtype & validity checks ----
-    # time (now tolerant of object -> converts)
-    ds = normalize_time_coord_to_datetime64(ds, errors)
-
-    # numeric coords: level, latitude, longitude
-    for coord in ["level", "latitude", "longitude"]:
-        try:
-            arr = ds[coord].values
-            if not np.issubdtype(arr.dtype, np.number):
-                errors.append(
-                    f"{coord} coordinate must be numeric, got {arr.dtype}"
-                )
-            if np.any(np.isclose(arr, 9.969e36)):
-                errors.append(
-                    f"{coord} coordinate appears to contain fill values "
-                    "(9.969e36)"
-                )
-        except (KeyError, AttributeError, TypeError, ValueError) as exc:
-            errors.append(f"Failed checking coordinate '{coord}': {exc}")
-
-    # ---- 4. Enforce lat & lon 1-D shapes ----
-    try:
-        if ds["latitude"].values.ndim != 1:
-            errors.append("latitude must be 1D")
-        if ds["longitude"].values.ndim != 1:
-            errors.append("longitude must be 1D")
-    except (KeyError, AttributeError, TypeError) as exc:
-        errors.append(f"Failed checking lat/lon dimensionality: {exc}")
-
-    # ---- 5. Enforce required pressure levels ----
-    try:
-        level = ds["level"].values.astype(float)
-        required_levels = np.array([500.0, 700.0, 850.0, 925.0], dtype=float)
-
-        if level.ndim != 1:
-            errors.append("level coordinate must be 1D")
-        else:
-            # 1) Check subset requirement
-            missing_levels = required_levels[~np.isin(required_levels, level)]
-            if missing_levels.size > 0:
-                errors.append(
-                    "Missing required pressure levels: "
-                    f"{missing_levels.tolist()}. "
-                    f"Dataset contains: {level.tolist()}"
-                )
-
-            # 2) Warning: dataset contains extra levels
-            extra_levels = level[~np.isin(level, required_levels)]
-            if extra_levels.size > 0:
-                errors.append(
-                    "WARNING: Dataset contains extra pressure levels beyond "
-                    f"expected subset: {extra_levels.tolist()}"
-                )
-
-    except (KeyError, AttributeError, TypeError, ValueError) as exc:
-        errors.append(f"Failed checking 'level' coordinate values: {exc}")
-
-    # ---- 6. Required variables ----
-    required_4d_vars = ["z", "t", "u", "v"]
-    missing_4d = [v for v in required_4d_vars if v not in ds.data_vars]
-    if missing_4d:
-        errors.append(f"Missing required 4D variable(s): {missing_4d}")
-
-    # ---- 7. Variable dtype & shape verification ----
-    expected_var_dims = ("time", "level", "latitude", "longitude")
-    for var_name in required_4d_vars:
-        if var_name not in ds.data_vars:
-            continue  # already counted as missing above
-        try:
-            var = ds[var_name]
-            if var.dims != expected_var_dims:
-                errors.append(
-                    f"{var_name} must have dims {expected_var_dims}, "
-                    f"got {var.dims}"
-                )
-            if not np.issubdtype(var.dtype, np.number):
-                errors.append(
-                    f"{var_name} must be numeric, got dtype {var.dtype}"
-                )
-        except (KeyError, AttributeError, TypeError, ValueError) as exc:
-            errors.append(f"Failed checking variable '{var_name}': {exc}")
-
-    # ---- FINAL REPORT ----
-    if errors:
-        print("=" * 50)
-        print("✗ DATASET FAILED PRS VALIDATION:")
-        for err in errors:
-            print("  -", err)
-        print("\nTotal errors:", len(errors))
-        print("=" * 50)
-        return False
-
-    print("✓ Dataset matches expected low-res PRS format.")
-    return True
+    print("=" * 50)
