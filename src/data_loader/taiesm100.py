@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from .util import is_local_testing
+from .util import is_local_testing, verify_lowres_sfc_format, verify_lowres_prs_format
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
@@ -88,7 +88,7 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "../data/taiesm100" if is_local_testing() else \
+    return "../data/taiesm100/v1" if is_local_testing() else \
             f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/"
 
 def get_prs_paths(
@@ -168,11 +168,15 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     ))
 
     # Read data from file
-    prs_paths = get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop)
-    prs_data = convert_to_era5_format(
-                    xr.open_mfdataset(prs_paths, combine="by_coords",
-                                      compat="no_conflicts", data_vars="all")
-                ).sel(level=pressure_levels, time=duration)
+    prs_data = (
+        convert_to_era5_format(
+            xr.open_mfdataset(
+                get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop),
+                combine="by_coords", compat="no_conflicts", data_vars="all"
+            )
+        ).sel(level=pressure_levels, time=duration)
+    )
+    verify_lowres_prs_format(prs_data)
 
     return prs_data
 
@@ -193,11 +197,15 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     ))
 
     # Read data from file
-    sfc_paths = get_sfc_paths(folder, surface_vars, duration.start, duration.stop)
-    sfc_data = convert_to_era5_format(
-                    xr.open_mfdataset(sfc_paths, combine='by_coords',
-                                      compat="no_conflicts", data_vars="all")
-                ).sel(time=duration)
+    sfc_data = (
+        convert_to_era5_format(
+            xr.open_mfdataset(
+                get_sfc_paths(folder, surface_vars, duration.start, duration.stop),
+                combine='by_coords', compat="no_conflicts", data_vars="all"
+            )
+        ).sel(time=duration)
+    )
+    verify_lowres_sfc_format(sfc_data)
 
     sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
     sfc_data['pr'].attrs['units'] = 'mm/day'
