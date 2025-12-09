@@ -13,7 +13,7 @@ This module provides small, focused helpers for:
 The verification routines enforce a consistent ERA5 layout, checking:
 - Required dimensions and coordinates (time, bnds, level, latitude, longitude)
 - Coordinate dtypes (time as datetime64, others numeric)
-- Presence and shapes of key data variables (e.g., `time_bnds`, `tp`, or a
+- Presence and shapes of key data variables (e.g., `tp`, `t2m`, or a
   user-specified 4D variable)
 
 These utilities are intended to be used as early sanity checks and
@@ -137,7 +137,6 @@ def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
             - longitude: 1D
 
         Data variables (at least):
-            - time_bnds: (time, bnds), datetime64[ns]
             - z, t, u, v: (time, level, latitude, longitude)
 
     Returns
