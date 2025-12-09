@@ -75,8 +75,8 @@ def normalize_time_coord_to_datetime64(ds: xr.Dataset, errors: list) -> xr.Datas
     """
     try:
         time = ds["time"]
-    except Exception as e:
-        errors.append(f"Failed to access 'time' coordinate: {e}")
+    except (KeyError, TypeError) as exc:
+        errors.append(f"Failed to access 'time' coordinate: {exc}")
         return ds
 
     # Already correct dtype
@@ -86,21 +86,23 @@ def normalize_time_coord_to_datetime64(ds: xr.Dataset, errors: list) -> xr.Datas
     # Object -> try to convert
     if time.dtype == object:
         errors.append(
-            "WARNING: time coordinate is object dtype; attempting to convert to datetime64[ns]."
+            "WARNING: time coordinate is object dtype; attempting to convert to "
+            "datetime64[ns]."
         )
         try:
             converted = np.array(time.values, dtype="datetime64[ns]")
             ds = ds.assign_coords(time=("time", converted))
-        except Exception as conv_e:
+        except (TypeError, ValueError) as conv_err:
             errors.append(
-                f"Failed to convert object 'time' to datetime64[ns]: {conv_e}"
+                "Failed to convert object 'time' to datetime64[ns]: "
+                f"{conv_err}"
             )
         return ds
 
     # Any other dtype is a hard error
     errors.append(
-        f"time coordinate must be datetime64[ns] or object convertible to datetime64[ns], "
-        f"got {time.dtype}"
+        "time coordinate must be datetime64[ns] or object convertible to "
+        f"datetime64[ns], got {time.dtype}"
     )
     return ds
 
@@ -132,7 +134,7 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
     bool
         True if dataset passes all checks, False otherwise.
     """
-    errors = []
+    errors: List[str] = []
 
     # ---- 1. Required dimensions ----
     required_dims = ["time", "latitude", "longitude"]
@@ -148,9 +150,9 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
     # Stop here if coords missing (prevents cascade failures)
     if errors:
         print("=" * 50)
-        print("✗ DATASET FAILED BASIC SFC STRUCTURE CHECKS:")
-        for e in errors:
-            print("  -", e)
+        print("✗ DATASET FAILED SFC BASIC CHECKS:")
+        for err in errors:
+            print("  -", err)
         print("=" * 50)
         return False
 
@@ -163,13 +165,19 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
         try:
             arr = ds[name].values
             if not np.issubdtype(arr.dtype, np.number):
-                errors.append(f"{name} coordinate must be numeric, got {arr.dtype}")
+                errors.append(
+                    f"{name} coordinate must be numeric, got {arr.dtype}"
+                )
             if not np.isfinite(arr).all():
-                errors.append(f"{name} coordinate contains non-finite values")
+                errors.append(
+                    f"{name} coordinate contains non-finite values"
+                )
             if np.any(np.isclose(arr, 9.969e36)):
-                errors.append(f"{name} coordinate contains fill values (9.969e36)")
-        except Exception as e:
-            errors.append(f"Failed checking coordinate '{name}': {e}")
+                errors.append(
+                    f"{name} coordinate contains fill values (9.969e36)"
+                )
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            errors.append(f"Failed checking coordinate '{name}': {exc}")
 
     # ---- 4. Enforce 1-D shapes ----
     try:
@@ -179,8 +187,8 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
             errors.append("latitude must be 1D")
         if lon.ndim != 1:
             errors.append("longitude must be 1D")
-    except Exception as e:
-        errors.append(f"Failed checking lat/lon dimensionality: {e}")
+    except (KeyError, AttributeError, TypeError) as exc:
+        errors.append(f"Failed checking lat/lon dimensionality: {exc}")
 
     # ---- 5. Required variables ----
     required_vars = ["tp", "t2m", "u10", "v10"]
@@ -196,18 +204,22 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
         try:
             var = ds[var_name]
             if var.dims != field_dims:
-                errors.append(f"{var_name} must have dims {field_dims}, got {var.dims}")
+                errors.append(
+                    f"{var_name} must have dims {field_dims}, got {var.dims}"
+                )
             if not np.issubdtype(var.dtype, np.number):
-                errors.append(f"{var_name} must be numeric, got dtype {var.dtype}")
-        except Exception as e:
-            errors.append(f"Failed checking variable '{var_name}': {e}")
+                errors.append(
+                    f"{var_name} must be numeric, got dtype {var.dtype}"
+                )
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            errors.append(f"Failed checking variable '{var_name}': {exc}")
 
     # ---- FINAL REPORT ----
     if errors:
         print("=" * 50)
         print("✗ DATASET FAILED SFC VALIDATION:")
-        for e in errors:
-            print("  -", e)
+        for err in errors:
+            print("  -", err)
         print("\nTotal errors:", len(errors))
         print("=" * 50)
         return False
@@ -247,7 +259,7 @@ def verify_lowres_prs_format(ds: xr.Dataset):
     bool
         True if dataset passes all checks, False otherwise.
     """
-    errors = []
+    errors: List[str] = []
 
     # ---- 1. Required dimensions ----
     required_dims = ["time", "level", "latitude", "longitude"]
@@ -263,9 +275,9 @@ def verify_lowres_prs_format(ds: xr.Dataset):
     # If basic structure is missing, don't try to access non-existent vars
     if errors:
         print("=" * 50)
-        print("✗ DATASET FAILED BASIC PRS STRUCTURE CHECKS:")
-        for e in errors:
-            print("  -", e)
+        print("✗ DATASET FAILED PRS BASIC CHECKS:")
+        for err in errors:
+            print("  -", err)
         print("\nTotal errors:", len(errors))
         print("=" * 50)
         return False
@@ -279,15 +291,20 @@ def verify_lowres_prs_format(ds: xr.Dataset):
         try:
             arr = ds[coord].values
             if not np.issubdtype(arr.dtype, np.number):
-                errors.append(f"{coord} coordinate must be numeric, got {arr.dtype}")
+                errors.append(
+                    f"{coord} coordinate must be numeric, got {arr.dtype}"
+                )
             if not np.isfinite(arr).all():
-                errors.append(f"{coord} coordinate contains non-finite values")
+                errors.append(
+                    f"{coord} coordinate contains non-finite values"
+                )
             if np.any(np.isclose(arr, 9.969e36)):
                 errors.append(
-                    f"{coord} coordinate appears to contain fill values (9.969e36)"
+                    f"{coord} coordinate appears to contain fill values "
+                    "(9.969e36)"
                 )
-        except Exception as e:
-            errors.append(f"Failed checking coordinate '{coord}': {e}")
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            errors.append(f"Failed checking coordinate '{coord}': {exc}")
 
     # ---- 4. Enforce lat & lon 1-D shapes ----
     try:
@@ -297,8 +314,8 @@ def verify_lowres_prs_format(ds: xr.Dataset):
             errors.append("latitude must be 1D")
         if lon.ndim != 1:
             errors.append("longitude must be 1D")
-    except Exception as e:
-        errors.append(f"Failed checking lat/lon dimensionality: {e}")
+    except (KeyError, AttributeError, TypeError) as exc:
+        errors.append(f"Failed checking lat/lon dimensionality: {exc}")
 
     # ---- 5. Enforce required pressure levels ----
     try:
@@ -308,42 +325,43 @@ def verify_lowres_prs_format(ds: xr.Dataset):
         if level.ndim != 1:
             errors.append("level coordinate must be 1D")
         else:
-            # ---- 1. Check subset requirement ----
+            # 1) Check subset requirement
             missing_levels = required_levels[~np.isin(required_levels, level)]
             if missing_levels.size > 0:
                 errors.append(
-                    f"Missing required pressure levels: {missing_levels.tolist()}. "
+                    "Missing required pressure levels: "
+                    f"{missing_levels.tolist()}. "
                     f"Dataset contains: {level.tolist()}"
                 )
 
-            # ---- 2. Warning: dataset contains extra levels ----
+            # 2) Warning: dataset contains extra levels
             extra_levels = level[~np.isin(level, required_levels)]
             if extra_levels.size > 0:
                 errors.append(
-                    "WARNING: Dataset contains extra pressure levels beyond expected subset: "
-                    f"{extra_levels.tolist()}"
+                    "WARNING: Dataset contains extra pressure levels beyond "
+                    f"expected subset: {extra_levels.tolist()}"
                 )
 
-            # ---- 3. Warning: exact match expected, but differs ----
-            # (Only if no missing levels — otherwise main error already applies)
+            # 3) Warning: exact match expected, but differs
             if missing_levels.size == 0:
                 expected_set = set(required_levels.tolist())
                 actual_set = set(level.tolist())
                 if expected_set != actual_set:
                     errors.append(
-                        "WARNING: Level coordinate does not exactly match expected set "
-                        f"{required_levels.tolist()}. Full dataset levels: {level.tolist()}"
+                        "WARNING: Level coordinate does not exactly match "
+                        f"expected set {required_levels.tolist()}. "
+                        f"Full dataset levels: {level.tolist()}"
                     )
 
-            # ---- 4. Warning: order should be ascending ----
-            if not np.all(np.diff(level) > 0):
+            # 4) Warning: order should be descending (ERA5 convention)
+            if not np.all(np.diff(level) < 0):
                 errors.append(
-                    "WARNING: level coordinate is not strictly descending (ERA5 convention)."
+                    "WARNING: level coordinate is not strictly descending "
+                    "(ERA5 convention)."
                 )
 
-    except Exception as e:
-        errors.append(f"Failed checking 'level' coordinate values: {e}")
-
+    except (KeyError, AttributeError, TypeError, ValueError) as exc:
+        errors.append(f"Failed checking 'level' coordinate values: {exc}")
 
     # ---- 6. Required variables ----
     required_4d_vars = ["z", "t", "u", "v"]
@@ -353,27 +371,29 @@ def verify_lowres_prs_format(ds: xr.Dataset):
 
     # ---- 7. Variable dtype & shape verification ----
     expected_var_dims = ("time", "level", "latitude", "longitude")
-    # 4D fields
-    for v in required_4d_vars:
-        if v not in ds.data_vars:
+    for var_name in required_4d_vars:
+        if var_name not in ds.data_vars:
             continue  # already counted as missing above
         try:
-            var = ds[v]
+            var = ds[var_name]
             if var.dims != expected_var_dims:
                 errors.append(
-                    f"{v} must have dims {expected_var_dims}, got {var.dims}"
+                    f"{var_name} must have dims {expected_var_dims}, "
+                    f"got {var.dims}"
                 )
             if not np.issubdtype(var.dtype, np.number):
-                errors.append(f"{v} must be numeric, got dtype {var.dtype}")
-        except Exception as e:
-            errors.append(f"Failed checking variable '{v}': {e}")
+                errors.append(
+                    f"{var_name} must be numeric, got dtype {var.dtype}"
+                )
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            errors.append(f"Failed checking variable '{var_name}': {exc}")
 
     # ---- FINAL REPORT ----
     if errors:
         print("=" * 50)
         print("✗ DATASET FAILED PRS VALIDATION:")
-        for e in errors:
-            print("  -", e)
+        for err in errors:
+            print("  -", err)
         print("\nTotal errors:", len(errors))
         print("=" * 50)
         return False
