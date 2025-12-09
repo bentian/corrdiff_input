@@ -36,20 +36,20 @@ from .lowres_fmt_validator import verify_lowres_sfc_format, verify_lowres_prs_fo
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
-    {'name': 'pr', 'variable': 'precipitation'},
+    {'name': 'tp', 'variable': 'precipitation'},
     # 500
-    # {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
-    # {'name': 't', 'pressure': 500, 'variable': 'temperature'},
-    # {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
-    # {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
+    {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
+    {'name': 't', 'pressure': 500, 'variable': 'temperature'},
+    {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
+    {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
     # 700
-    # {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
-    # {'name': 't', 'pressure': 700, 'variable': 'temperature'},
-    # {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
-    # {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
+    {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
+    {'name': 't', 'pressure': 700, 'variable': 'temperature'},
+    {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
+    {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
     # 850
-    # {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
-    # {'name': 't', 'pressure': 850, 'variable': 'temperature'},
+    {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
+    {'name': 't', 'pressure': 850, 'variable': 'temperature'},
     {'name': 'u', 'pressure': 850, 'variable': 'eastward_wind'},
     {'name': 'v', 'pressure': 850, 'variable': 'northward_wind'},
     # 925
@@ -58,7 +58,7 @@ TAIESM_100_CHANNELS = [
     # {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
     # {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
     # Remaining surface channels
-    {'name': 'ts', 'variable': 'temperature_2m'},
+    {'name': 't2m', 'variable': 'temperature_2m'},
     # {'name': 'u10', 'variable': 'eastward_wind_10m'},
     # {'name': 'v10', 'variable': 'northward_wind_10m'},
 ]
@@ -89,8 +89,8 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "../data/taiesm100/v1" if is_local_testing() else \
-            f"/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/"
+    return "../data/taiesm100" if is_local_testing() else \
+            f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1-WRF/{ssp_level}"
 
 def get_prs_paths(
     folder: str,
@@ -113,12 +113,11 @@ def get_prs_paths(
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     folder_path = Path(folder)
     if is_local_testing():
-        return [folder_path / f"TaiESM1_PRS_{var}_{yyyymm}_r1440x721_day.nc"
+        return [folder_path / "PRS" / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
                 for var in variables for yyyymm in date_range]
 
     return [
-        folder_path / var / yyyymm[:4] / \
-            f"TaiESM1_PRS_{var}_{yyyymm}_r1440x721_day.nc"
+        folder_path / var / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
@@ -143,12 +142,11 @@ def get_sfc_paths(
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     folder_path = Path(folder)
     if is_local_testing():
-        return [folder_path / f"TaiESM1_SFC_{var}_{yyyymm}_r1440x721_day.nc"
+        return [folder_path / "SFC" / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
                 for var in variables for yyyymm in date_range]
 
     return [
-        folder_path / var / yyyymm[:4] / \
-            f"TaiESM1_SFC_{var}_{yyyymm}_r1440x721_day.nc"
+        folder_path / var / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
@@ -165,19 +163,16 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     """
     pressure_levels = sorted({ch['pressure'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch})
     pressure_level_vars = list(dict.fromkeys(
-        f"{ch['name']}{ch['pressure']}" for ch in TAIESM_100_CHANNELS if 'pressure' in ch
+        ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch
     ))
 
     # Read data from file
     prs_data = (
-        convert_to_era5_format(
-            xr.open_mfdataset(
-                get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop),
-                combine="by_coords", compat="no_conflicts", data_vars="all"
-            )
+        xr.open_mfdataset(
+            get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop),
+            combine="by_coords", compat="no_conflicts", data_vars="all"
         ).sel(level=pressure_levels, time=duration)
     )
-    verify_lowres_prs_format(prs_data)
 
     return prs_data
 
@@ -199,17 +194,15 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
 
     # Read data from file
     sfc_data = (
-        convert_to_era5_format(
-            xr.open_mfdataset(
-                get_sfc_paths(folder, surface_vars, duration.start, duration.stop),
-                combine='by_coords', compat="no_conflicts", data_vars="all"
-            )
+        xr.open_mfdataset(
+            get_sfc_paths(folder, surface_vars, duration.start, duration.stop),
+            combine='by_coords', compat="no_conflicts", data_vars="all"
         ).sel(time=duration)
     )
-    verify_lowres_sfc_format(sfc_data)
 
-    sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
-    sfc_data['pr'].attrs['units'] = 'mm/day'
+    # TODO - necessary?
+    # sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
+    # sfc_data['pr'].attrs['units'] = 'mm/day'
 
     return sfc_data
 
@@ -248,16 +241,19 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
-    sfc_prs_ds = xr.merge([
-        get_surface_data(folder, duration),
-        get_pressure_level_data(folder, duration),
-    ], compat="no_conflicts")
+    sfc_prs_ds = (
+        xr.merge([
+            get_surface_data(folder, duration),
+            get_pressure_level_data(folder, duration),
+        ], compat="no_conflicts")
+        .rename({"lat": "latitude", "lon": "longitude"})    # rename coords
+    )
 
     # From Taiwan center, crop +/- 20 degrees lat/lon per discussion.
     cropped_with_coords = sfc_prs_ds.sel(
         latitude=slice(TAIWAN_CLAT - 20, TAIWAN_CLAT + 20),
         longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20)
-    ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })
+    ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })  # rename variables
 
     # Expand cropped data to REF grid size, ignoring original latitude/longtitude.
     output_ds = expand_to_grid(cropped_with_coords, grid)

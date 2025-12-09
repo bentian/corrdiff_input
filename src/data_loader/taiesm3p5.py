@@ -38,10 +38,10 @@ import xarray as xr
 from .util import is_local_testing, regrid_dataset
 
 TAIESM_3P5_CHANNELS = {
-    "RAINNC": "precipitation",
-    "T2MEAN": "temperature_2m",
-    "U10MEAN": "eastward_wind_10m",
-    "V10MEAN": "northward_wind_10m",
+    "PRCP": "precipitation",
+    "T2": "temperature_2m",
+    "U10": "eastward_wind_10m",
+    "V10": "northward_wind_10m",
 }
 
 def get_taiesm3p5_channels() -> Dict[str, str]:
@@ -70,8 +70,8 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "../data/taiesm3p5/v1" if is_local_testing() else \
-            f"/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_{ssp_level}"
+    return "../data/taiesm3p5" if is_local_testing() else \
+            f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1-WRF/{ssp_level}"
 
 def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     """
@@ -87,7 +87,8 @@ def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
     """
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     folder_path = Path(folder)
-    return [folder_path / f"wrfday_d01_{yyyymm}.nc" for yyyymm in date_range]
+    return [folder_path / f"TaiESM1-WRF_tw3.5_ssp126_wrfday_d01_{yyyymm}.nc"
+            for yyyymm in date_range]
 
 def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
                           ssp_level: str) -> Tuple[xr.Dataset, xr.Dataset]:
@@ -108,33 +109,18 @@ def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     end_datetime = pd.to_datetime(str(end_date), format='%Y%m%d')
 
     # Read surface level data.
-    file_paths = get_file_paths(get_data_dir(ssp_level), start_date, end_date)
     surface_ds = xr.open_mfdataset(
-        file_paths,
+        get_file_paths(get_data_dir(ssp_level), start_date, end_date),
         preprocess=lambda ds: (
             ds[surface_var_names].assign_coords(            # attach new time coord
-                time=pd.to_datetime(ds["Times"].astype(str), format="%Y-%m-%d_%H:%M:%S")
-            )
+                time=pd.to_datetime(ds["Times"].astype(str), format="%Y-%m-%d_%H:%M:%S"))
             .rename({"Time": "time"})                       # unify time dimension name
-            .drop_vars("Times", errors="ignore")            # remove the raw WRF Times bytes
             .sel(time=slice(start_datetime, end_datetime))  # select requested dates
-            .isel(time=slice(None, -1))     # FIXEME - drop the last timestamp in each file
         )
     )
-
-    # Crop & attach coordinates per REF grid, and rename variables.
-    cropped_with_coords = (
-        # FIXME - Remove hardcoded lat/lon once XLAT & XLONG are available
-        surface_ds
-            .isel(south_north=slice(48, 256), west_east=slice(52, 260))
-            .assign_coords(
-                lat=(("south_north", "west_east"), grid.XLAT.data),
-                lon=(("south_north", "west_east"), grid.XLONG.data),
-            )
-            .rename(TAIESM_3P5_CHANNELS)
-    )
+    print(surface_ds)
 
     # Based on REF grid, regrid TaiESM 3.5km data over spatial dimensions for all timestamps.
-    output_ds = regrid_dataset(cropped_with_coords, grid)
+    output_ds = regrid_dataset(surface_ds, grid)
 
-    return cropped_with_coords, output_ds
+    return surface_ds, output_ds
