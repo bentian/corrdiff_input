@@ -48,7 +48,7 @@ import numpy as np
 from numcodecs import Blosc
 from dask.diagnostics import ProgressBar
 
-from data_builder import GRID_COORD_KEYS, generate_cwa_outputs, generate_ssp_outputs
+from data_builder import GRID_COORD_KEYS, generate_cwa_outputs, generate_ssp_outputs, validate_ssp_level
 
 DEBUG = False  # Set to True to enable debugging
 
@@ -245,17 +245,6 @@ def generate_corrdiff_zarr(start_date: str, end_date: str, ssp_level: str = '') 
     # Write the output dataset to ZARR.
     suffix = f"_{ssp_level}" if ssp_level else ""
     write_to_zarr(f"corrdiff_dataset_{start_date}_{end_date}{suffix}.zarr", out)
-
-
-def validate_ssp_level(raw: str) -> str:
-    """
-    Validate and normalize an SSP suffix string.
-    """
-    allowed_ssp_levels = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
-    if raw not in allowed_ssp_levels:
-        raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
-
-    return raw
 
 
 def main():

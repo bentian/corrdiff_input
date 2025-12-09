@@ -84,8 +84,8 @@ def get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
     -------
     grid : xr.Dataset
         Dataset containing the target grid's spatial coordinate fields:
-        - `lat`: 2D latitude field (south_north × west_east)
-        - `lon`: 2D longitude field (south_north × west_east)
+        - `lat`: 2D latitude field (south_north x west_east)
+        - `lon`: 2D longitude field (south_north x west_east)
 
     grid_coords : dict
         Dictionary of additional coordinate variables extracted from the
@@ -226,3 +226,14 @@ def generate_ssp_outputs(start_date: str, end_date: str, ssp_level: str
     )
 
     return taiesm3p5_outputs, taiesm100_outputs, grid_coords
+
+
+def validate_ssp_level(raw: str) -> str:
+    """
+    Validate and normalize an SSP suffix string.
+    """
+    allowed_ssp_levels = {"historical", "ssp126", "ssp245", "ssp370", "ssp585"}
+    if raw not in allowed_ssp_levels:
+        raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
+
+    return raw
