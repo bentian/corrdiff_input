@@ -48,7 +48,9 @@ import numpy as np
 from numcodecs import Blosc
 from dask.diagnostics import ProgressBar
 
-from data_builder import GRID_COORD_KEYS, generate_cwa_outputs, generate_ssp_outputs, validate_ssp_level
+from data_builder import (
+    GRID_COORD_KEYS, generate_cwa_outputs, generate_ssp_outputs, validate_ssp_level
+)
 
 DEBUG = False  # Set to True to enable debugging
 
