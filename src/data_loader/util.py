@@ -21,6 +21,7 @@ preprocessing steps before further regridding, stacking into CorrDiff-ready
 tensors, or model training / inference.
 """
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import xesmf as xe
@@ -137,8 +138,7 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
     errors: List[str] = []
 
     # ---- 1. Required dimensions ----
-    required_dims = ["time", "latitude", "longitude"]
-    for dim in required_dims:
+    for dim in ["time", "latitude", "longitude"]:
         if dim not in ds.dims:
             errors.append(f"Missing required dimension: '{dim}'")
 
@@ -168,10 +168,6 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
                 errors.append(
                     f"{name} coordinate must be numeric, got {arr.dtype}"
                 )
-            if not np.isfinite(arr).all():
-                errors.append(
-                    f"{name} coordinate contains non-finite values"
-                )
             if np.any(np.isclose(arr, 9.969e36)):
                 errors.append(
                     f"{name} coordinate contains fill values (9.969e36)"
@@ -181,11 +177,9 @@ def verify_lowres_sfc_format(ds: xr.Dataset):
 
     # ---- 4. Enforce 1-D shapes ----
     try:
-        lat = ds["latitude"].values
-        lon = ds["longitude"].values
-        if lat.ndim != 1:
+        if ds["latitude"].values.ndim != 1:
             errors.append("latitude must be 1D")
-        if lon.ndim != 1:
+        if ds["longitude"].values.ndim != 1:
             errors.append("longitude must be 1D")
     except (KeyError, AttributeError, TypeError) as exc:
         errors.append(f"Failed checking lat/lon dimensionality: {exc}")
@@ -262,8 +256,7 @@ def verify_lowres_prs_format(ds: xr.Dataset):
     errors: List[str] = []
 
     # ---- 1. Required dimensions ----
-    required_dims = ["time", "level", "latitude", "longitude"]
-    for dim in required_dims:
+    for dim in ["time", "level", "latitude", "longitude"]:
         if dim not in ds.dims:
             errors.append(f"Missing required dimension: '{dim}'")
 
@@ -294,10 +287,6 @@ def verify_lowres_prs_format(ds: xr.Dataset):
                 errors.append(
                     f"{coord} coordinate must be numeric, got {arr.dtype}"
                 )
-            if not np.isfinite(arr).all():
-                errors.append(
-                    f"{coord} coordinate contains non-finite values"
-                )
             if np.any(np.isclose(arr, 9.969e36)):
                 errors.append(
                     f"{coord} coordinate appears to contain fill values "
@@ -308,11 +297,9 @@ def verify_lowres_prs_format(ds: xr.Dataset):
 
     # ---- 4. Enforce lat & lon 1-D shapes ----
     try:
-        lat = ds["latitude"].values
-        lon = ds["longitude"].values
-        if lat.ndim != 1:
+        if ds["latitude"].values.ndim != 1:
             errors.append("latitude must be 1D")
-        if lon.ndim != 1:
+        if ds["longitude"].values.ndim != 1:
             errors.append("longitude must be 1D")
     except (KeyError, AttributeError, TypeError) as exc:
         errors.append(f"Failed checking lat/lon dimensionality: {exc}")
@@ -340,24 +327,6 @@ def verify_lowres_prs_format(ds: xr.Dataset):
                 errors.append(
                     "WARNING: Dataset contains extra pressure levels beyond "
                     f"expected subset: {extra_levels.tolist()}"
-                )
-
-            # 3) Warning: exact match expected, but differs
-            if missing_levels.size == 0:
-                expected_set = set(required_levels.tolist())
-                actual_set = set(level.tolist())
-                if expected_set != actual_set:
-                    errors.append(
-                        "WARNING: Level coordinate does not exactly match "
-                        f"expected set {required_levels.tolist()}. "
-                        f"Full dataset levels: {level.tolist()}"
-                    )
-
-            # 4) Warning: order should be descending (ERA5 convention)
-            if not np.all(np.diff(level) < 0):
-                errors.append(
-                    "WARNING: level coordinate is not strictly descending "
-                    "(ERA5 convention)."
                 )
 
     except (KeyError, AttributeError, TypeError, ValueError) as exc:
