@@ -31,7 +31,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from .util import is_local_testing, verify_lowres_sfc_format, verify_lowres_prs_format
+from .util import is_local_testing
+from .lowres_fmt_validator import verify_lowres_sfc_format, verify_lowres_prs_format
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
