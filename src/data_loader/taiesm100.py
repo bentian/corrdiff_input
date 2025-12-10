@@ -177,10 +177,6 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
         ).sel(time=duration)
     )
 
-    # TODO - necessary?
-    # sfc_data['pr'] = sfc_data['pr'] * 24 * 1000  # Convert unit to mm/day
-    # sfc_data['pr'].attrs['units'] = 'mm/day'
-
     return sfc_data
 
 def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
