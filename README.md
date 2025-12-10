@@ -166,10 +166,9 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 
 ### SSP mode
 - Put TaiESM 3.5 km file below under `data/taiesm3p5/`.
-  - `wrfday_d01_201801.nc`
-- Put TaiESM 100 km below under `data/taiesm100/`.
-  - `TaiESM1_SFC_*_201801_r1440x721_day.nc`
-  - `TaiESM1_PRS_*_201801_r1440x721_day.nc`
+  - `TaiESM1-WRF_tw3.5_ssp126_wrfday_d01_201801.nc`
+- Put TaiESM 100 km below under `data/taiesm100/SFC` and `data/taiesm100/PRS` respectively.
+  - `TaiESM1_ssp126_r1i1p1f1_*_EA_201801_day.nc`
 
 ## Example
 ```
@@ -182,13 +181,13 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
      ┣ 📜 ERA5_SFC_*_201801_r1440x721_day.nc
      ┗ 📜 ERA5_PRS_*_201801_r1440x721_day.nc
    ┣ 📂 taiesm3p5/
-     ┗ 📜 wrfday_d01_201801.nc
+     ┗ 📜 TaiESM1-WRF_tw3.5_ssp126_wrfday_d01_201801.nc
    ┣ 📂 taiesm100/
-     ┣ 📜 TaiESM1_SFC_*_201801_r1440x721_day.nc
-     ┗ 📜 TaiESM1_PRS_*_201801_r1440x721_day.nc
-   ┗ 📂 extreme_dates/
-     ┣ 📜 extreme_dates.txt
-     ┗ 📜 extreme_dates_histogram.png
+     ┣ 📂 SFC/
+       ┗ 📜 TaiESM1_ssp126_r1i1p1f1_*_EA_201801_day.nc
+     ┗ 📂 PRS/
+       ┗ 📜 TaiESM1_ssp126_r1i1p1f1_*_EA_201801_day.nc
+   ┗ 📂 extreme_dates/              # Extreme precipitation dates
  ┣ 📂 ref_grid/
    ┣ 📜 generate_wrf_coord.py       # REF grid generation script
    ┣ 📜 TReAD_wrf_d02_info.nc       # TReAD grid used to generate REF grid
@@ -235,7 +234,7 @@ Tensor creation logic:
   - TReAD / ERA5
   - TaiESM 3.5 km / 100 km
 - Provides utilities:
-  - Regridding (xesmf)
+  - Regridding
   - File data format validation
 
 ### 🔹 `src/helpers/`
