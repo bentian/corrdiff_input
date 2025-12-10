@@ -32,7 +32,6 @@ import pandas as pd
 import xarray as xr
 
 from .util import is_local_testing
-from .lowres_fmt_validator import verify_lowres_sfc_format, verify_lowres_prs_format
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
@@ -241,12 +240,11 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
-    sfc_prs_ds = (
+    sfc_prs_ds = convert_to_era5_format(
         xr.merge([
             get_surface_data(folder, duration),
             get_pressure_level_data(folder, duration),
         ], compat="no_conflicts")
-        .rename({"lat": "latitude", "lon": "longitude"})    # rename coords
     )
 
     # From Taiwan center, crop +/- 20 degrees lat/lon per discussion.
@@ -262,18 +260,21 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
 
 def convert_to_era5_format(ds: xr.Dataset) -> xr.Dataset:
     """
-    Convert a TaiESM100 SFC/PRS-style dataset into an ERA5-like format.
+    Convert a TaiESM100 SFC or PRS dataset into an ERA5-compatible format.
 
-    Common steps (SFC + PRS):
-    - Rename spatial coordinates: (lat, lon) -> (latitude, longitude)
-    - Convert CFTimeIndex (no-leap) to NumPy datetime64 via string roundtrip
-      to avoid cftime → pandas conversion issues
-    - Drop bounds variables not present in ERA5 samples: lat_bnds, lon_bnds
+    This function normalizes coordinate names, time formats, and selected
+    variables so that TaiESM100 outputs resemble ERA5 low-resolution data.
+    The resulting dataset can be passed directly into ERA5-style validation or
+    downstream CorrDiff preprocessing.
 
-    PRS-specific steps (applied only if 'plev' is a coordinate):
-    - Convert pressure levels from Pa -> hPa and keep them as a coordinate
-    - Rename plev -> level
-    - Rename TaiESM wind variables (ua, va) to ERA5 naming (u, v) when present
+    Standard transformations (applied to both SFC and PRS):
+    - Rename spatial coordinates from TaiESM convention ("lat", "lon")
+      to ERA5 convention ("latitude", "longitude").
+    - Convert all time values to NumPy datetime64[ns] using a safe
+      string round-trip, ensuring compatibility with xarray and NetCDF
+      encoders (avoids CFTimeIndex / no-leap calendar issues).
+    - Drop TaiESM-specific bounds and auxiliary variables that do not appear
+      in ERA5 products (e.g., "lat_bnds", "lon_bnds", "height").
 
     Parameters
     ----------
@@ -286,24 +287,17 @@ def convert_to_era5_format(ds: xr.Dataset) -> xr.Dataset:
         Dataset in an ERA5-like layout suitable for format checks and
         downstream processing.
     """
-    is_prs_data = "plev" in ds.coords
-
-    # Rename spatial + (optionally) PRS variables
-    prs_name_mapping = {"plev": "level", "ua": "u", "va": "v"} if is_prs_data else {}
+    # Rename spatial
     out = ds.rename({
         "lat": "latitude",
-        "lon": "longitude",
-        **prs_name_mapping
+        "lon": "longitude"
     })
 
-    # Always assign converted time; assign converted plev only for PRS datasets
-    assign_kwargs = { "time": ("time", pd.to_datetime(out["time"].astype(str))) }
-    if is_prs_data:
-        assign_kwargs["level"] = out["level"] / 100.0   # Convert from Pa to hPa value
-    out = out.assign_coords(**assign_kwargs)
+    # Always assign converted time for nc dump
+    out = out.assign_coords(time=pd.to_datetime(out["time"].astype(str)))
 
-    # drop bounds vars not present in ERA5 sample
-    out = out.drop_vars(["lat_bnds", "lon_bnds"], errors="ignore")
+    # Drop bounds vars not present in ERA5 sample
+    out = out.drop_vars(["lat_bnds", "lon_bnds", "height"], errors="ignore")
 
     return out
 
