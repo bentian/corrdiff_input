@@ -1,0 +1,16 @@
+# macOS metadata
+.DS_Store
+
+# Python bytecode caches
+__pycache__/
+
+# Ignore dataset folders
+data/era5/
+data/taiesm100/
+data/taiesm3p5/
+data/tread/
+
+# Ignore archived files and generated NetCDF / zarr folders
+archive/
+nc_dump/
+*.zar/
