@@ -47,36 +47,26 @@ import xarray as xr
 
 from .util import regrid_dataset, is_local_testing
 
-ERA5_CHANNELS = [
-    {'name': 'tp', 'variable': 'precipitation'},
-    # 500
-    {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 500, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
-    # 700
-    {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 700, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
-    # 850
-    {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 850, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 850, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 850, 'variable': 'northward_wind'},
-    {'name': 'w', 'pressure': 850, 'variable': 'vertical_velocity'}, # W for 850 only
-    # 925
-    {'name': 'z', 'pressure': 925, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 925, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
-    # 1000
-    {'name': 'q', 'pressure': 1000, 'variable': 'specific_humidity'},
-    # Remaining surface channels
+# Surface + pressure level channels that are common
+BASELINE_CHANNELS: List[Dict[str, dict]] = [
+    {"name": "tp", "variable": "precipitation"},
+    *[
+        {"name": name, "pressure": pressure, "variable": variable}
+        for pressure in (500, 700, 850, 925)
+        for name, variable in (
+            ("z", "geopotential_height"),
+            ("t", "temperature"),
+            ("u", "eastward_wind"),
+            ("v", "northward_wind"),
+        )
+    ],
     {'name': 't2m', 'variable': 'temperature_2m'},
     {'name': 'u10', 'variable': 'eastward_wind_10m'},
     {'name': 'v10', 'variable': 'northward_wind_10m'},
-    {'name': 'msl', 'variable': 'mean_sea_level_pressure'},
+]
+
+ERA5_CHANNELS = [
+    *BASELINE_CHANNELS,
     # Orography channels
     {'name': 'oro', 'variable': 'terrain_height'}, # to replace with TER
     {'name': 'slope', 'variable': 'slope_angle'},

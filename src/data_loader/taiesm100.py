@@ -31,35 +31,13 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from .era5 import BASELINE_CHANNELS
 from .util import is_local_testing
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = [
-    {'name': 'tp', 'variable': 'precipitation'},
-    # 500
-    {'name': 'z', 'pressure': 500, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 500, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 500, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 500, 'variable': 'northward_wind'},
-    # 700
-    {'name': 'z', 'pressure': 700, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 700, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 700, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 700, 'variable': 'northward_wind'},
-    # 850
-    {'name': 'z', 'pressure': 850, 'variable': 'geopotential_height'},
-    {'name': 't', 'pressure': 850, 'variable': 'temperature'},
-    {'name': 'u', 'pressure': 850, 'variable': 'eastward_wind'},
-    {'name': 'v', 'pressure': 850, 'variable': 'northward_wind'},
-    # 925
-    # {'name': 'z', 'pressure': 925, 'variable': 'geopotential_height'},
-    # {'name': 't', 'pressure': 925, 'variable': 'temperature'},
-    # {'name': 'u', 'pressure': 925, 'variable': 'eastward_wind'},
-    # {'name': 'v', 'pressure': 925, 'variable': 'northward_wind'},
-    # Remaining surface channels
-    {'name': 't2m', 'variable': 'temperature_2m'},
-    # {'name': 'u10', 'variable': 'eastward_wind_10m'},
-    # {'name': 'v10', 'variable': 'northward_wind_10m'},
+    ch for ch in BASELINE_CHANNELS
+    if ch.get("pressure") != 925 and ch["name"] not in ("u10", "v10")
 ]
 
 def get_taiesm100_channels() -> dict:
