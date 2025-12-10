@@ -131,7 +131,7 @@ def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> x
         },
         coords={
             **{key: grid_coords[key] for key in GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2025-12-06 09:00:00", "ns"),  # Placeholder for timestamp
+            "XTIME": np.datetime64("2025-12-10 09:00:00", "ns"),  # Placeholder for timestamp
             "time": hr_data["cwb"].time,
             "cwb_variable": hr_data["cwb_variable"],
             "era5_scale": ("era5_channel", lr_data["era5_scale"].data),

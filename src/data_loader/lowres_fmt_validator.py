@@ -25,16 +25,16 @@ def verify_lowres_sfc_format(ds: xr.Dataset) -> bool:
     Verify that a dataset matches the expected SFC format.
 
     Expected format:
-        Dimensions: time, latitude, longitude
+        Dimensions: time, lat, lon
         Coordinates:
             - time:      datetime64[ns]
-            - latitude:  1D
-            - longitude: 1D
+            - lat:  1D
+            - lon: 1D
         Variables (at least):
-            - t2m:       (time, latitude, longitude)
-            - tp:        (time, latitude, longitude)
-            - u10:       (time, latitude, longitude)
-            - v10:       (time, latitude, longitude)
+            - t2m:       (time, lat, lon)
+            - tp:        (time, lat, lon)
+            - u10:       (time, lat, lon)
+            - v10:       (time, lat, lon)
 
     Returns
     -------
@@ -44,8 +44,8 @@ def verify_lowres_sfc_format(ds: xr.Dataset) -> bool:
     errors: List[str] = []
 
     # 1. Required dims/coords
-    _check_required_dims(ds, ["time", "latitude", "longitude"], errors)
-    _check_required_coords(ds, ["time", "latitude", "longitude"], errors)
+    _check_required_dims(ds, ["time", "lat", "lon"], errors)
+    _check_required_coords(ds, ["time", "lat", "lon"], errors)
 
     if _has_true_errors(errors):
         _print_report("✗ DATASET FAILED SFC BASIC CHECKS:", errors)
@@ -55,14 +55,14 @@ def verify_lowres_sfc_format(ds: xr.Dataset) -> bool:
     ds = _normalize_time_coord_to_datetime64(ds, errors)
 
     # 3. Numeric coord checks for lat/lon
-    _check_numeric_coords(ds, ["latitude", "longitude"], errors)
+    _check_numeric_coords(ds, ["lat", "lon"], errors)
 
     # 4. 1D lat/lon
-    _check_1d_coords(ds, ["latitude", "longitude"], errors)
+    _check_1d_coords(ds, ["lat", "lon"], errors)
 
     # 5–6. Variables: presence, dims, dtype
     required_vars = ["tp", "t2m", "u10", "v10"]
-    field_dims = ("time", "latitude", "longitude")
+    field_dims = ("time", "lat", "lon")
     _check_vars_dims_and_dtype(ds, required_vars, field_dims, errors)
 
     # Final report
@@ -82,17 +82,17 @@ def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
         Dimensions:
             - time
             - level
-            - latitude
-            - longitude
+            - lat
+            - lon
 
         Coordinates:
             - time:      datetime64[ns]
             - level:     [500, 700, 850, 925] (hPa) subset of dataset levels
-            - latitude:  1D
-            - longitude: 1D
+            - lat:  1D
+            - lon: 1D
 
         Data variables (at least):
-            - z, t, u, v: (time, level, latitude, longitude)
+            - z, t, u, v: (time, level, lat, lon)
 
     Returns
     -------
@@ -102,8 +102,8 @@ def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
     errors: List[str] = []
 
     # 1. Required dims/coords
-    _check_required_dims(ds, ["time", "level", "latitude", "longitude"], errors)
-    _check_required_coords(ds, ["time", "level", "latitude", "longitude"], errors)
+    _check_required_dims(ds, ["time", "level", "lat", "lon"], errors)
+    _check_required_coords(ds, ["time", "level", "lat", "lon"], errors)
 
     if _has_true_errors(errors):
         _print_report("✗ DATASET FAILED PRS BASIC CHECKS:", errors)
@@ -113,10 +113,10 @@ def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
     ds = _normalize_time_coord_to_datetime64(ds, errors)
 
     # 3. Numeric coords (level, lat, lon)
-    _check_numeric_coords(ds, ["level", "latitude", "longitude"], errors)
+    _check_numeric_coords(ds, ["level", "lat", "lon"], errors)
 
     # 4. 1D lat/lon
-    _check_1d_coords(ds, ["latitude", "longitude"], errors)
+    _check_1d_coords(ds, ["lat", "lon"], errors)
 
     # 5. Required pressure levels (subset)
     try:
@@ -145,7 +145,7 @@ def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
 
     # 6–7. Variables: presence, dims, dtype
     required_4d_vars = ["z", "t", "u", "v"]
-    expected_var_dims = ("time", "level", "latitude", "longitude")
+    expected_var_dims = ("time", "level", "lat", "lon")
     _check_vars_dims_and_dtype(ds, required_4d_vars, expected_var_dims, errors)
 
     # Final report
