@@ -118,7 +118,6 @@ def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
             .sel(time=slice(start_datetime, end_datetime))  # select requested dates
         )
     )
-    print(surface_ds)
 
     # Based on REF grid, regrid TaiESM 3.5km data over spatial dimensions for all timestamps.
     output_ds = regrid_dataset(surface_ds, grid)

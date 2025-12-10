@@ -89,7 +89,7 @@ def get_data_dir(ssp_level: str) -> str:
     need to handle local vs. remote directory differences.
     """
     return "../data/taiesm100" if is_local_testing() else \
-            f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1-WRF/{ssp_level}"
+            f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1/{ssp_level}"
 
 def get_prs_paths(
     folder: str,
