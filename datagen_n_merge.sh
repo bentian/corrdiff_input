@@ -10,11 +10,7 @@ fi
 
 START_DATE=$1
 END_DATE=$2
-SSP_LEVEL=""
-
-if [ "$#" -eq 3 ]; then
-    SSP_LEVEL=$3
-fi
+SSP_LEVEL=${3:-""}
 
 # Convert dates to year-only for interval calculation
 START_YEAR=$(echo "$START_DATE" | cut -c1-4)
@@ -24,37 +20,84 @@ INTERVAL=8
 CURRENT_YEAR=$START_YEAR
 cd src || exit 1
 
-# Generate datasets for each 8-year interval
-while [ "$CURRENT_YEAR" -le "$END_YEAR" ]; do
-    NEXT_YEAR=$((CURRENT_YEAR + INTERVAL - 1))
-    if [ "$NEXT_YEAR" -gt "$END_YEAR" ]; then
-        NEXT_YEAR=$END_YEAR
-    fi
+run_ssp_job() {
+    local LEVEL=$1
+    local current_year=$START_YEAR
 
-    INTERVAL_START_DATE=${CURRENT_YEAR}0101
-    INTERVAL_END_DATE=${NEXT_YEAR}1231
+    echo "=== Running SSP level [$LEVEL] from $START_DATE to $END_DATE ==="
 
-    echo "Running corrdiff_datagen.py for $INTERVAL_START_DATE to $INTERVAL_END_DATE ..."
+    # Generate datasets for each 8-year interval
+    while [ "$current_year" -le "$END_YEAR" ]; do
+        local next_year=$((current_year + INTERVAL - 1))
+        if [ "$next_year" -gt "$END_YEAR" ]; then
+            next_year=$END_YEAR
+        fi
 
-    if [ -z "$SSP_LEVEL" ]; then
-        # CWA / TReAD+ERA5 mode
-        python corrdiff_datagen.py "$INTERVAL_START_DATE" "$INTERVAL_END_DATE"
-    else
-        # SSP / TaiESM mode
-        python corrdiff_datagen.py "$INTERVAL_START_DATE" "$INTERVAL_END_DATE" "$SSP_LEVEL"
-    fi
+        local interval_start_date=${current_year}0101
+        local interval_end_date=${next_year}1231
 
-    CURRENT_YEAR=$((NEXT_YEAR + 1))
-done
+        echo "Running corrdiff_datagen.py for $interval_start_date to $interval_end_date (SSP=$LEVEL) ..."
 
-# Name merged dataset (include SSP level if provided)
+        python corrdiff_datagen.py "$interval_start_date" "$interval_end_date" "$LEVEL" || exit 1
+
+        current_year=$((next_year + 1))
+    done
+
+    # Name merged dataset for this SSP level
+    local merged_zarr="merged_dataset_${START_DATE}_${END_DATE}_${LEVEL}.zarr"
+
+    echo "Merging all datasets into [$merged_zarr] ..."
+    python helpers/merge_zarr.py || exit 1
+    mv combined.zarr "$merged_zarr"
+
+    # Move all zarrs for this run into ../<SSP_LEVEL>
+    local dest_dir="../$LEVEL"
+    mkdir -p "$dest_dir"
+    mv ./*.zarr "$dest_dir"/
+    echo "Moved all .zarr files to $dest_dir"
+}
+
+run_cwa_job() {
+    local current_year=$START_YEAR
+
+    echo "=== Running CWA mode from $START_DATE to $END_DATE ==="
+
+    # Generate datasets for each 8-year interval
+    while [ "$current_year" -le "$END_YEAR" ]; do
+        local next_year=$((current_year + INTERVAL - 1))
+        if [ "$next_year" -gt "$END_YEAR" ]; then
+            next_year=$END_YEAR
+        fi
+
+        local interval_start_date=${current_year}0101
+        local interval_end_date=${next_year}1231
+
+        echo "Running corrdiff_datagen.py for $interval_start_date to $interval_end_date ..."
+        python corrdiff_datagen.py "$interval_start_date" "$interval_end_date" || exit 1
+
+        current_year=$((next_year + 1))
+    done
+
+    # Name merged dataset (no SSP level)
+    local merged_zarr="merged_dataset_${START_DATE}_${END_DATE}.zarr"
+
+    echo "Merging all datasets into [$merged_zarr] ..."
+    python helpers/merge_zarr.py || exit 1
+    mv combined.zarr "$merged_zarr"
+}
+
 if [ -z "$SSP_LEVEL" ]; then
-    MERGED_ZARR="merged_dataset_${START_DATE}_${END_DATE}.zarr"
+    # CWA / TReAD+ERA5 mode
+    run_cwa_job
 else
-    MERGED_ZARR="merged_dataset_${START_DATE}_${END_DATE}_${SSP_LEVEL}.zarr"
+    # SSP / TaiESM mode
+    if [ "$SSP_LEVEL" = "all" ]; then
+        # Iterate through all configured SSP levels
+        for level in ssp126 ssp245 ssp370 ssp585; do
+            run_ssp_job "$level"
+        done
+    else
+        # Single specified SSP level
+        run_ssp_job "$SSP_LEVEL"
+    fi
 fi
-
-echo "Merging all datasets into [$MERGED_ZARR] ..."
-
-python helpers/merge_zarr.py
-mv combined.zarr "$MERGED_ZARR"
