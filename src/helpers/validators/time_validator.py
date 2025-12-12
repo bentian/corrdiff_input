@@ -41,8 +41,8 @@ Exit codes:
 """
 import sys
 from pathlib import Path
-import re
 from collections import Counter
+import re
 
 import xarray as xr
 import pandas as pd
@@ -50,18 +50,12 @@ import pandas as pd
 
 # Days per month, ignoring leap years
 DAYS_PER_MONTH = {
-    1: 31,
-    2: 28,  # always 28, as requested
-    3: 31,
-    4: 30,
-    5: 31,
-    6: 30,
-    7: 31,
-    8: 31,
-    9: 30,
-    10: 31,
-    11: 30,
-    12: 31,
+    1: 31, 2: 28,  # always 28, as requested
+    3: 31, 4: 30,
+    5: 31, 6: 30,
+    7: 31, 8: 31,
+    9: 30, 10: 31,
+    11: 30, 12: 31,
 }
 
 
@@ -77,54 +71,43 @@ def find_nc_files(root: Path):
             yield path, mm
 
 
-def check_file(path: Path, month: int):
-    """Check that a NetCDF file has the expected number of daily time steps for its month."""
-
-    expected_days = DAYS_PER_MONTH[month]
+def load_times(ds: xr.Dataset, path: Path):
+    """Return datetime64 index from 'time' or 'Times' coordinate."""
+    if "time" in ds:
+        src = "time"
+        fmt = None
+    elif "Times" in ds:
+        src = "Times"
+        fmt = "%Y-%m-%d_%H:%M:%S"
+    else:
+        print(f"[WARN] {path}: no 'time' or 'Times' coordinate found")
+        return None
 
     try:
-        with xr.open_dataset(path) as ds:
-            # Choose time source
-            src = "time" if "time" in ds else "Times" if "Times" in ds else None
-            if src is None:
-                print(f"[WARN] {path}: no 'time' or 'Times' coordinate/variable found")
-                return
+        strings = ds[src].astype(str)
+        return pd.to_datetime(strings, format=fmt)
+    except (ValueError, TypeError) as e:
+        print(f"[ERROR] Failed converting time in {path}: {e}")
+        return None
 
-            fmt = "%Y-%m-%d_%H:%M:%S" if src == "Times" else None
-            times = pd.to_datetime(ds[src].astype(str), format=fmt)
-    except Exception as e:
-        print(f"[ERROR] Cannot open {path}: {e}")
-        return
 
-    # Assume daily data; each entry is one day
-    n_time = len(times)
-    if n_time == expected_days:
-        print(f"[OK]   {path}  month={month:02d}  time_count={n_time}")
-        return
-
-    print(f"[FAIL] {path}  month={month:02d}  time_count={n_time}, expected={expected_days}")
-
-    # Diagnose missing / duplicate dates (use normalized dates, ignore hour)
+def diagnose_time_issues(times: pd.DatetimeIndex, month: int, expected_days: int):
+    """Print missing, extra, duplicate dates."""
     dates = times.normalize()
-    date_counter = Counter(dates)
-    if not date_counter:
+    counts = Counter(dates)
+
+    if not counts:
         print("       No valid datetime values parsed.")
         return
 
-    unique_dates = sorted(date_counter.keys())
-    year = unique_dates[0].year  # assume single month, single year
+    year = sorted(counts.keys())[0].year
+    expected = {pd.Timestamp(year=year, month=month, day=d)
+                for d in range(1, expected_days + 1)}
+    actual = set(counts.keys())
 
-    expected_dates = [
-        pd.Timestamp(year=year, month=month, day=d)
-        for d in range(1, expected_days + 1)
-    ]
-
-    expected_set = set(expected_dates)
-    actual_set = set(unique_dates)
-
-    missing = sorted(expected_set - actual_set)
-    extra = sorted(actual_set - expected_set)
-    duplicates = [d for d, c in date_counter.items() if c > 1]
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    duplicates = [d for d, c in counts.items() if c > 1]
 
     if missing:
         print("       Missing dates:")
@@ -132,15 +115,39 @@ def check_file(path: Path, month: int):
             print("         ", d.strftime("%Y-%m-%d"))
 
     if extra:
-        print("       Extra dates (not expected for that month):")
+        print("       Extra dates:")
         for d in extra:
             print("         ", d.strftime("%Y-%m-%d"))
 
     if duplicates:
-        print("       Duplicate dates (appear more than once):")
+        print("       Duplicate dates:")
         for d in duplicates:
-            print(f"         {d.strftime('%Y-%m-%d')} (count={date_counter[d]})")
+            print(f"         {d.strftime('%Y-%m-%d')} (count={counts[d]})")
 
+
+def check_file(path: Path, month: int):
+    """Check time count for a single NetCDF file."""
+
+    expected_days = DAYS_PER_MONTH[month]
+
+    try:
+        with xr.open_dataset(path) as ds:
+            times = load_times(ds, path)
+    except (OSError, IOError) as e:
+        print(f"[ERROR] Cannot open {path}: {e}")
+        return
+
+    if times is None:
+        return
+
+    n_time = len(times)
+    if n_time == expected_days:
+        print(f"[OK]   {path}  month={month:02d}  time_count={n_time}")
+        return
+
+    print(f"[FAIL] {path}  month={month:02d}  time_count={n_time}, "
+          f"expected={expected_days}")
+    diagnose_time_issues(times, month, expected_days)
     print()
 
 
