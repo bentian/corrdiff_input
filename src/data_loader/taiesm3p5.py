@@ -60,10 +60,7 @@ def get_data_dir(ssp_level: str) -> str:
     Returns
     -------
     str
-        Path to the TaiESM 3.5km data directory. This is:
-        - `./data/taiesm3p5` when running locally (as detected by is_local_testing())
-        - `/lfs/archive/TCCIP_data/TaiESM-WRF/TAIESM_tw3.5km_<ssp_level>` when
-          running on the BIG server.
+        Path to the TaiESM 3.5km data directory.
 
     Notes
     -----
@@ -73,7 +70,7 @@ def get_data_dir(ssp_level: str) -> str:
     return "../data/taiesm3p5" if is_local_testing() else \
             f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1-WRF/{ssp_level}"
 
-def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
+def get_file_paths(folder: str, start_date: str, end_date: str, ssp_level: str) -> List[str]:
     """
     Generate a list of file paths for the specified date range.
 
@@ -81,13 +78,14 @@ def get_file_paths(folder: str, start_date: str, end_date: str) -> List[str]:
         folder (str): The directory containing the files.
         start_date (str): The start date in 'YYYYMMDD' format.
         end_date (str): The end date in 'YYYYMMDD' format.
+        ssp_level (str): SSP level used to compose the TaiESM dataset file name.
 
     Returns:
         list: A list of file paths corresponding to each month in the date range.
     """
     date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
     folder_path = Path(folder)
-    return [folder_path / f"TaiESM1-WRF_tw3.5_ssp126_wrfday_d01_{yyyymm}.nc"
+    return [folder_path / f"TaiESM1-WRF_tw3.5_{ssp_level}_wrfday_d01_{yyyymm}.nc"
             for yyyymm in date_range]
 
 def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
@@ -110,7 +108,7 @@ def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
 
     # Read surface level data.
     surface_ds = xr.open_mfdataset(
-        get_file_paths(get_data_dir(ssp_level), start_date, end_date),
+        get_file_paths(get_data_dir(ssp_level), start_date, end_date, ssp_level),
         preprocess=lambda ds: (
             ds[surface_var_names].assign_coords(            # attach new time coord
                 time=pd.to_datetime(ds["Times"].astype(str), format="%Y-%m-%d_%H:%M:%S"))

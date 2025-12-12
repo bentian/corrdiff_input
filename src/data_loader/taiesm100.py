@@ -43,7 +43,7 @@ def get_taiesm100_channels() -> dict:
 
 def get_data_dir(ssp_level: str) -> str:
     """
-    Return the base directory for the TaiESM 3.5 km dataset based on the
+    Return the base directory for the TaiESM 100 km dataset based on the
     execution environment.
 
     Parameters
@@ -53,10 +53,7 @@ def get_data_dir(ssp_level: str) -> str:
     Returns
     -------
     str
-        Path to the TaiESM 3.5 km data directory. This is:
-        - `./data/taiesm100` when running locally (as detected by is_local_testing())
-        - `/lfs/home/corrdiff/data/012-predictor_TaiESM1_ssp/{ssp_level}_daily/` when
-          running on the BIG server.
+        Path to the TaiESM 100 km data directory.
 
     Notes
     -----
@@ -70,7 +67,8 @@ def get_prs_paths(
     folder: str,
     variables: List[str],
     start_date: str,
-    end_date: str
+    end_date: str,
+    ssp_level: str
 ) -> List[Path]:
     """
     Generate file paths for TaiESM 100km pressure level data files within a specified date range.
@@ -80,6 +78,7 @@ def get_prs_paths(
         variables (list of str): List of variable names to include.
         start_date (str or datetime-like): The start date of the desired data range.
         end_date (str or datetime-like): The end date of the desired data range.
+        ssp_level (str): SSP level used to compose the TaiESM dataset file name.
 
     Returns:
         list: A list of file paths corresponding to the specified variables and date range.
@@ -91,7 +90,7 @@ def get_prs_paths(
                 for var in variables for yyyymm in date_range]
 
     return [
-        folder_path / var / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
+        folder_path / var / f"TaiESM1_{ssp_level}_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
@@ -99,7 +98,8 @@ def get_sfc_paths(
     folder: str,
     variables: List[str],
     start_date: str,
-    end_date: str
+    end_date: str,
+    ssp_level: str
 ) -> List[Path]:
     """
     Generate file paths for TaiESM 100km surface data files within a specified date range.
@@ -109,6 +109,7 @@ def get_sfc_paths(
         variables (list of str): List of variable names to include.
         start_date (str or datetime-like): The start date of the desired data range.
         end_date (str or datetime-like): The end date of the desired data range.
+        ssp_level (str): SSP level used to compose the TaiESM dataset file name.
 
     Returns:
         list: A list of file paths corresponding to the specified variables and date range.
@@ -120,17 +121,18 @@ def get_sfc_paths(
                 for var in variables for yyyymm in date_range]
 
     return [
-        folder_path / var / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
+        folder_path / var / f"TaiESM1_{ssp_level}_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
         for var in variables for yyyymm in date_range
     ]
 
-def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
+def get_pressure_level_data(folder: str, duration: slice, ssp_level: str) -> xr.Dataset:
     """
     Retrieve and process pressure level data from TaiESM 100km files.
 
     Parameters:
         folder (str): Base directory containing TaiESM 100km pressure level data files.
         duration (slice): Time slice for the desired data range.
+        ssp_level (str): SSP level used to compose the TaiESM dataset file name.
 
     Returns:
         xarray.Dataset: Processed pressure level data.
@@ -143,14 +145,14 @@ def get_pressure_level_data(folder: str, duration: slice) -> xr.Dataset:
     # Read data from file
     prs_data = (
         xr.open_mfdataset(
-            get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop),
+            get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop, ssp_level),
             combine="by_coords", compat="no_conflicts", data_vars="all"
         ).sel(level=pressure_levels, time=duration)
     )
 
     return prs_data
 
-def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
+def get_surface_data(folder: str, duration: slice, ssp_level: str) -> xr.Dataset:
     """
     Retrieve and process surface data from TaiESM 100km files.
 
@@ -158,6 +160,7 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
         folder (str): Base directory containing TaiESM 100km surface data files.
         surface_vars (list): List of variable names for surface data.
         duration (slice): Time slice for the desired data range.
+        ssp_level (str): SSP level used to compose the TaiESM dataset file name.
 
     Returns:
         xarray.Dataset: Processed surface data.
@@ -169,7 +172,7 @@ def get_surface_data(folder: str, duration: slice) -> xr.Dataset:
     # Read data from file
     sfc_data = (
         xr.open_mfdataset(
-            get_sfc_paths(folder, surface_vars, duration.start, duration.stop),
+            get_sfc_paths(folder, surface_vars, duration.start, duration.stop, ssp_level),
             combine='by_coords', compat="no_conflicts", data_vars="all"
         ).sel(time=duration)
     )
@@ -212,8 +215,8 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
 
     # Process and merge surface and pressure levels data
     sfc_prs_ds = xr.merge([
-        get_surface_data(folder, duration),
-        get_pressure_level_data(folder, duration),
+        get_surface_data(folder, duration, ssp_level),
+        get_pressure_level_data(folder, duration, ssp_level),
     ], compat="no_conflicts")
 
     # Convert time for nc dump, rename spatial & variables, and drop unused bounds vars
