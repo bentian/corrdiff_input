@@ -35,10 +35,7 @@ from .era5 import BASELINE_CHANNELS
 from .util import is_local_testing
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
-TAIESM_100_CHANNELS = [
-    ch for ch in BASELINE_CHANNELS
-    if ch.get("pressure") != 925 and ch["name"] not in ("u10", "v10")
-]
+TAIESM_100_CHANNELS = BASELINE_CHANNELS
 
 def get_taiesm100_channels() -> dict:
     """Returns TaiESM 100km channel list."""
@@ -214,66 +211,32 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
-    sfc_prs_ds = convert_to_era5_format(
-        xr.merge([
-            get_surface_data(folder, duration),
-            get_pressure_level_data(folder, duration),
-        ], compat="no_conflicts")
+    sfc_prs_ds = xr.merge([
+        get_surface_data(folder, duration),
+        get_pressure_level_data(folder, duration),
+    ], compat="no_conflicts")
+
+    # Convert time for nc dump, rename spatial & variables, and drop unused bounds vars
+    sfc_prs_ds = (
+        sfc_prs_ds
+        .assign_coords(time=pd.to_datetime(sfc_prs_ds["time"].astype(str)))
+        .rename({
+            "lat": "latitude",
+            "lon": "longitude",
+            **{ch["name"]: ch["variable"] for ch in TAIESM_100_CHANNELS},
+        })
+        .drop_vars(["lat_bnds", "lon_bnds"], errors="ignore")
     )
 
-    # From Taiwan center, crop +/- 20 degrees lat/lon per discussion.
-    cropped_with_coords = sfc_prs_ds.sel(
+    cropped_ds = sfc_prs_ds.sel(
         latitude=slice(TAIWAN_CLAT - 20, TAIWAN_CLAT + 20),
         longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20)
-    ).rename({ ch['name']: ch['variable'] for ch in TAIESM_100_CHANNELS })  # rename variables
+    )
 
     # Expand cropped data to REF grid size, ignoring original latitude/longtitude.
-    output_ds = expand_to_grid(cropped_with_coords, grid)
+    output_ds = expand_to_grid(cropped_ds, grid)
 
-    return cropped_with_coords, output_ds
-
-def convert_to_era5_format(ds: xr.Dataset) -> xr.Dataset:
-    """
-    Convert a TaiESM100 SFC or PRS dataset into an ERA5-compatible format.
-
-    This function normalizes coordinate names, time formats, and selected
-    variables so that TaiESM100 outputs resemble ERA5 low-resolution data.
-    The resulting dataset can be passed directly into ERA5-style validation or
-    downstream CorrDiff preprocessing.
-
-    Standard transformations (applied to both SFC and PRS):
-    - Rename spatial coordinates from TaiESM convention ("lat", "lon")
-      to ERA5 convention ("latitude", "longitude").
-    - Convert all time values to NumPy datetime64[ns] using a safe
-      string round-trip, ensuring compatibility with xarray and NetCDF
-      encoders (avoids CFTimeIndex / no-leap calendar issues).
-    - Drop TaiESM-specific bounds and auxiliary variables that do not appear
-      in ERA5 products (e.g., "lat_bnds", "lon_bnds", "height").
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-        TaiESM100-style surface (SFC) or pressure-level (PRS) dataset.
-
-    Returns
-    -------
-    xr.Dataset
-        Dataset in an ERA5-like layout suitable for format checks and
-        downstream processing.
-    """
-    # Rename spatial
-    out = ds.rename({
-        "lat": "latitude",
-        "lon": "longitude"
-    })
-
-    # Always assign converted time for nc dump
-    out = out.assign_coords(time=pd.to_datetime(out["time"].astype(str)))
-
-    # Drop bounds vars not present in ERA5 sample
-    out = out.drop_vars(["lat_bnds", "lon_bnds", "height"], errors="ignore")
-
-    return out
+    return cropped_ds, output_ds
 
 def expand_to_grid(ds: xr.Dataset, grid: xr.Dataset) -> xr.Dataset:
     """

@@ -95,7 +95,7 @@ def dump_zarr_fields(zarr_path: str) -> None:
         ("era5_scale", num_era5_channels),
         ("era5_variable", num_era5_channels)
     ]:
-        print(f"\n{field_group}:")
+        print(f"\n{field_group} =>")
         print(group[field_group].info)
         for i in range(count):
             print(f"  Index {i}: {group[field_group][i]}")
