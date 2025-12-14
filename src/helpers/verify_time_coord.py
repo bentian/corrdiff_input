@@ -56,8 +56,8 @@ DAYS_PER_MONTH = {
 @dataclass
 class HourState:
     """State container for tracking hour-of-day consistency across files."""
-    last_hour: int | None = None    # Hour of day (0–23) from the last processed single-hour file
-    last_path: Path | None = None   # Path to the last file associated with `last_hour`
+    last_hour: Optional[int] = None    # Hour of day (0–23) from the last processed single-hour file
+    last_path: Optional[Path] = None   # Path to the last file associated with `last_hour`
 
 
 def find_nc_files(root: Path) -> Iterator[Tuple[Path, int]]:
