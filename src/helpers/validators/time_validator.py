@@ -125,22 +125,25 @@ def check_file(path: Path, month: int, state: HourState):
     }
     actual = set(counts)
 
-    missing = expected - actual
-    extra = actual - expected
-    dup_dates = sum(c > 1 for c in counts.values())
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    dup_dates = sorted(d for d, c in counts.items() if c > 1)
 
     # Hour consistency
     hours = sorted({t.hour for t in times})
+
+    def _fmt_dates(dates):
+        return [d.strftime("%Y-%m-%d") for d in dates]
 
     issues = []
     if n_time != expected_days:
         issues.append(f"count={n_time}/{expected_days}")
     if missing:
-        issues.append(f"missing={len(missing)}")
+        issues.append(f"missing={_fmt_dates(missing)}")
     if extra:
-        issues.append(f"extra={len(extra)}")
+        issues.append(f"extra={_fmt_dates(extra)}")
     if dup_dates:
-        issues.append(f"dup_dates={dup_dates}")
+        issues.append(f"dup_dates={_fmt_dates(dup_dates)}")
     if len(hours) > 1:
         issues.append(f"hours={hours}")
 
@@ -156,7 +159,7 @@ def check_file(path: Path, month: int, state: HourState):
 
     # Print issues if not OK
     if issues:
-        print(f"[FAIL] {path.name} (month={month:02d}) -> {" | ".join(issues)}")
+        print(f"[FAIL] {path.name} (month={month:02d}) -> {' | '.join(issues)}")
 
     return state
 
