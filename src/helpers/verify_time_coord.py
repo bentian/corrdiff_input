@@ -24,7 +24,7 @@ Output is printed as one summary line per file, grouped by directory,
 highlighting any detected issues.
 
 Typical usage:
-    python time_validator.py <top_folder>
+    python verify_time_coord.py <top_folder>
 
 where `<top_folder>` is the root directory containing NetCDF files.
 
