@@ -40,6 +40,7 @@ Exit codes:
     1  Invalid arguments or <top_folder> is not a directory.
 """
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from collections import Counter
 import re
@@ -57,6 +58,11 @@ DAYS_PER_MONTH = {
     9: 30, 10: 31,
     11: 30, 12: 31,
 }
+
+@dataclass
+class HourState:
+    last_hour: int | None = None
+    last_path: Path | None = None
 
 
 def find_nc_files(root: Path):
@@ -91,41 +97,7 @@ def load_times(ds: xr.Dataset, path: Path):
         return None
 
 
-def diagnose_time_issues(times: pd.DatetimeIndex, month: int, expected_days: int):
-    """Print missing, extra, duplicate dates."""
-    dates = times.normalize()
-    counts = Counter(dates)
-
-    if not counts:
-        print("       No valid datetime values parsed.")
-        return
-
-    year = sorted(counts.keys())[0].year
-    expected = {pd.Timestamp(year=year, month=month, day=d)
-                for d in range(1, expected_days + 1)}
-    actual = set(counts.keys())
-
-    missing = sorted(expected - actual)
-    extra = sorted(actual - expected)
-    duplicates = [d for d, c in counts.items() if c > 1]
-
-    if missing:
-        print("       Missing dates:")
-        for d in missing:
-            print("         ", d.strftime("%Y-%m-%d"))
-
-    if extra:
-        print("       Extra dates:")
-        for d in extra:
-            print("         ", d.strftime("%Y-%m-%d"))
-
-    if duplicates:
-        print("       Duplicate dates:")
-        for d in duplicates:
-            print(f"         {d.strftime('%Y-%m-%d')} (count={counts[d]})")
-
-
-def check_file(path: Path, month: int):
+def check_file(path: Path, month: int, state: HourState):
     """Check time count for a single NetCDF file."""
 
     expected_days = DAYS_PER_MONTH[month]
@@ -137,18 +109,56 @@ def check_file(path: Path, month: int):
         print(f"[ERROR] Cannot open {path}: {e}")
         return
 
-    if times is None:
-        return
+    # Ensure `times`` is a non-empty list
+    if times is None or len(times) == 0:
+        print(f"[FAIL] {path.name} (month={month:02d}) -> no valid time values")
+        return state
 
+    # Date-level diagnosis
     n_time = len(times)
-    if n_time == expected_days:
-        print(f"[OK]   {path}  month={month:02d}  time_count={n_time}")
-        return
+    dates = times.normalize()
+    counts = Counter(dates)
 
-    print(f"[FAIL] {path}  month={month:02d}  time_count={n_time}, "
-          f"expected={expected_days}")
-    diagnose_time_issues(times, month, expected_days)
-    print()
+    expected = {
+        pd.Timestamp(year=dates[0].year, month=month, day=d)
+        for d in range(1, expected_days + 1)
+    }
+    actual = set(counts)
+
+    missing = expected - actual
+    extra = actual - expected
+    dup_dates = sum(c > 1 for c in counts.values())
+
+    # Hour consistency
+    hours = sorted({t.hour for t in times})
+
+    issues = []
+    if n_time != expected_days:
+        issues.append(f"count={n_time}/{expected_days}")
+    if missing:
+        issues.append(f"missing={len(missing)}")
+    if extra:
+        issues.append(f"extra={len(extra)}")
+    if dup_dates:
+        issues.append(f"dup_dates={dup_dates}")
+    if len(hours) > 1:
+        issues.append(f"hours={hours}")
+
+    # Cross-file hour consistency (only compare when this file itself is single-hour)
+    if len(hours) == 1:
+        hr = hours[0]
+        if state.last_hour is not None and hr != state.last_hour:
+            issues.append(
+                f"hour_change={state.last_hour:02d}->{hr:02d} "
+                f"(prev={(state.last_path.name if state.last_path else 'unknown')})"
+            )
+        state = HourState(last_hour=hr, last_path=path)
+
+    # Print issues if not OK
+    if issues:
+        print(f"[FAIL] {path.name} (month={month:02d}) -> {" | ".join(issues)}")
+
+    return state
 
 
 def main():
@@ -162,13 +172,22 @@ def main():
         print(f"Error: {root} is not a directory")
         sys.exit(1)
 
-    any_files = False
-    for path, month in sorted(find_nc_files(root)):
-        any_files = True
-        check_file(path, month)
+    # Initial state
+    state = HourState()
+    last_dir = None
+    files = sorted(find_nc_files(root))
 
-    if not any_files:
-        print("No matching NetCDF files found under", root)
+    # Main loop to check files
+    for path, month in files:
+        curr_dir = path.parent
+        if curr_dir != last_dir:
+            print(f"\n=== {curr_dir} ===")
+            last_dir = curr_dir
+
+        state = check_file(path, month, state)
+
+    if not files:
+        print(f"No matching NetCDF files found under {root}")
 
 
 if __name__ == "__main__":
