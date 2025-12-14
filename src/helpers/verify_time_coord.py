@@ -1,49 +1,42 @@
 """
-NetCDF monthly time-axis checker.
+NetCDF time-axis validator for monthly climate datasets.
 
-This script walks a directory tree, finds NetCDF files whose names contain a
-`YYYYMM` month token (e.g.
-    TaiESM1_ssp126_r1i1p1f1_t_EA_201501_day.nc
-    TaiESM1-WRF_tw3.5_ssp126_wrfday_d01_201501.nc
-), and verifies that the `time` dimension has the expected number of daily
-entries for that calendar month.
+This script recursively scans a directory tree for NetCDF files whose
+filenames contain a YYYYMM timestamp (optionally followed by `_day`),
+and verifies that each file’s time coordinate is consistent with
+expected daily data for that month.
 
-Rules / assumptions:
-- Days per month are fixed by a simple table and DO NOT consider leap years
-  (i.e. February is always expected to have 28 days, even in leap years).
-- A valid file name must contain a 4-digit year followed immediately by a
-  2-digit month (YYYYMM), and end with either:
-    * "...YYYYMM.nc"          or
-    * "...YYYYMM_day.nc"
-- The NetCDF file must contain a `time` coordinate/variable. If it contains
-  `Times` instead, this script will rename `Times` -> `time`.
-- Time values are expected to be strings with the format "%Y-%m-%d_%H:%M:%S".
-  These are converted to pandas Timestamps for checking.
+Validation checks include:
+- The number of time steps matches the expected number of days
+  (using a fixed 28 days for February, regardless of leap years).
+- Missing calendar dates within the month.
+- Extra dates outside the expected month.
+- Duplicate dates (same calendar day appearing more than once).
+- Hour-of-day consistency within each file.
+- Hour-of-day consistency across files within the same directory
+  (detects unexpected hour changes between files).
 
-For each file the script:
-1. Counts the number of time steps and compares it with the expected number of
-   days in that month.
-2. On mismatch, it diagnoses the problem by:
-   - Normalizing timestamps to dates.
-   - Listing missing dates in that month (if any).
-   - Listing extra dates not belonging to that month (if any).
-   - Listing duplicate dates (same date appearing more than once) with counts.
+The script supports datasets that store time information either as:
+- a standard `time` coordinate, or
+- a WRF-style `Times` variable formatted as `%Y-%m-%d_%H:%M:%S`.
 
-Usage:
-    python check_nc_time_counts.py <top_folder>
+Output is printed as one summary line per file, grouped by directory,
+highlighting any detected issues.
 
-Arguments:
-    <top_folder>  Top-level directory under which all *.nc files are searched.
+Typical usage:
+    python time_validator.py <top_folder>
 
-Exit codes:
-    0  Success (script ran; individual files may still fail checks).
-    1  Invalid arguments or <top_folder> is not a directory.
+where `<top_folder>` is the root directory containing NetCDF files.
+
+This tool is intended for quality control of climate model outputs
+(e.g., ERA5, TaiESM, WRF-derived products) prior to aggregation,
+regridding, or machine-learning preprocessing.
 """
 import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator, Optional, Tuple
 import re
 
 import xarray as xr
@@ -67,7 +60,7 @@ class HourState:
     last_path: Path | None = None   # Path to the last file associated with `last_hour`
 
 
-def find_nc_files(root: Path):
+def find_nc_files(root: Path) -> Iterator[Tuple[Path, int]]:
     """Yield all *.nc files whose name ends with MM.nc where 01 <= MM <= 12."""
     pattern = re.compile(r".*?(\d{4})(\d{2})(?=(_day)?\.nc$)")
     for path in root.rglob("*.nc"):
@@ -79,7 +72,7 @@ def find_nc_files(root: Path):
             yield path, mm
 
 
-def load_times(ds: xr.Dataset, path: Path):
+def load_times(ds: xr.Dataset, path: Path) -> Optional[pd.DatetimeIndex]:
     """Return datetime64 index from 'time' or 'Times' coordinate."""
     if "time" in ds:
         src = "time"
@@ -132,7 +125,8 @@ def collect_date_issues(times: pd.DatetimeIndex, month: int, expected_days: int)
     return issues
 
 
-def collect_hour_issues(times: pd.DatetimeIndex, state: HourState, path: Path) -> tuple[list[str], HourState]:
+def collect_hour_issues(times: pd.DatetimeIndex, state: HourState, path: Path
+                        ) -> tuple[list[str], HourState]:
     """Return hour-related issue strings and updated state for one file."""
     hours = sorted({t.hour for t in times})
     issues: list[str] = []
