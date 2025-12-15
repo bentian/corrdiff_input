@@ -95,10 +95,26 @@ nc_dump/<start_date>_<end_date>/
 ## 2️⃣ Generate Multi-Year Datasets (avoid OOM)
 
 For long time ranges (> 8 years):
+
+### CWA (TReAD + ERA5)
 ```
 ./datagen_n_merge.sh <start_date> <end_date>
-# or
+```
+
+### SSP (TaiESM)
+
+__Single SSP level__
+
+Run for a specific SSP scenario (`historical` / `ssp126` / `ssp245` / `ssp370` / `ssp585`):
+```
 ./datagen_n_merge.sh <start_date> <end_date> <ssp_level>
+```
+
+__All non-historical SSP levels__
+
+Run for all supported future SSP scenarios (`ssp126`, `ssp245`, `ssp370`, and `ssp585`):
+```
+./datagen_n_merge.sh <start_date> <end_date> all
 ```
 
 The script:
@@ -118,14 +134,14 @@ python src/helpers/dump_zarr.py <input_zarr_file>
 
 ### Filter data by dates
 
-_Revise file paths in `src/helpers/filter_zarr.py` and run:_
+Revise file paths in `src/helpers/filter_zarr.py`, and run:
 ```
 python src/helpers/filer_zarr.py
 ```
 
 ### Merge multiple Zarr files
 
-_Put all `corrdiff_*.zarr` files under `src/helpers/` and run:_
+Put all `corrdiff_*.zarr` files under `./`, and run:
 ```
 python src/helpers/merge_zarr.py
 ```
@@ -151,6 +167,23 @@ ny, nx = 208, 208               # Desired grid dimensions
 ```
 CWA_REF_GRID = "../ref_grid/wrf_208x208_grid_coords.nc"
 SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
+```
+
+## 5️⃣ Verify Dataset Format
+
+### Verify low-resolution dataset file format
+
+Put SFC / PRS `.nc` files of the same time range under the same folder, and run:
+```
+python src/helpers/verify_lowres_fmt.py sfc <sfc_files_folder>
+# or
+python src/helpers/verify_lowres_fmt.py prs <prs_files_folder>
+```
+
+### Verify `time` coordinate consistency in dataset
+
+```
+python src/helpers/verify_time_coord.py <top_folder>
 ```
 
 # 📂 Project Structure
@@ -195,7 +228,7 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
    ┣ 📜 TAIESM_tw3.5km_coord2d.nc   # TaiESM 3.5 km grid used to generate REF grid
    ┗ 📜 ssp_208x208_grid_coords.nc  # SSP 208x208 REF grid
  ┣ 📂 src/
-   ┣ 📂 helpers/              # Zarr utilities & Geographic region plotting
+   ┣ 📂 helpers/              # Zarr utilities & Data validators
    ┣ 📂 data_loader/          # TReAD / ERA5 / TaiESM data loaders
    ┣ 📜 corrdiff_datagen.py   # Zarr generation script
    ┣ 📜 data_builder.py       # Low- and high-resolution dataset builder script
@@ -239,10 +272,21 @@ Tensor creation logic:
 
 ### 🔹 `src/helpers/`
 
-Post-processing & debugging:
+Post-processing & debugging helpers -
+
+#### `*_zarr.py`
+
 - Inspects single Zarr file
 - Merges multiple Zarr files
 - Filters data in Zarr by dates
+
+#### `verify_*.py`
+
+- Validates low-resolution data file format
+- Validates data file `time` coordinate consistency
+
+#### `geo_region.py`
+
 - Plots geographic region
 
 ### 🔹 `ref_grid/`

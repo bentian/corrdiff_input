@@ -2,12 +2,12 @@
 Low-resolution dataset validation utilities.
 
 This module provides helpers to validate that surface (SFC) and pressure-level
-(PRS) ERA5-style NetCDF datasets conform to expected low-resolution formats.
+(PRS) NetCDF datasets conform to expected low-resolution formats.
 
 It can also be run as a script:
 
-    python lowres_fmt_validator.py sfc /path/to/folder_with_nc_files
-    python lowres_fmt_validator.py prs /path/to/folder_with_nc_files
+    python verify_lowres_fmt.py sfc /path/to/folder_with_nc_files
+    python verify_lowres_fmt.py prs /path/to/folder_with_nc_files
 
 The folder should contain one or more .nc files which will be merged into a
 single xarray.Dataset (via open_mfdataset) before validation.
@@ -28,8 +28,8 @@ def verify_lowres_sfc_format(ds: xr.Dataset) -> bool:
         Dimensions: time, lat, lon
         Coordinates:
             - time:      datetime64[ns]
-            - lat:  1D
-            - lon: 1D
+            - lat:       1D
+            - lon:       1D
         Variables (at least):
             - t2m:       (time, lat, lon)
             - tp:        (time, lat, lon)
@@ -88,8 +88,8 @@ def verify_lowres_prs_format(ds: xr.Dataset) -> bool:
         Coordinates:
             - time:      datetime64[ns]
             - level:     [500, 700, 850, 925] (hPa) subset of dataset levels
-            - lat:  1D
-            - lon: 1D
+            - lat:       1D
+            - lon:       1D
 
         Data variables (at least):
             - z, t, u, v: (time, level, lat, lon)
@@ -181,23 +181,19 @@ def _normalize_time_coord_to_datetime64(ds: xr.Dataset, errors: list) -> xr.Data
     # Object -> try to convert
     if time.dtype == object:
         errors.append(
-            "WARNING: time coordinate is object dtype; attempting to convert to "
-            "datetime64[ns]."
+            "WARNING: time coordinate is object dtype; attempting to convert to datetime64[ns]."
         )
         try:
             converted = np.array(time.values, dtype="datetime64[ns]")
             ds = ds.assign_coords(time=("time", converted))
         except (TypeError, ValueError) as conv_err:
-            errors.append(
-                "Failed to convert object 'time' to datetime64[ns]: "
-                f"{conv_err}"
-            )
+            errors.append(f"Failed to convert object 'time' to datetime64[ns]: {conv_err}")
         return ds
 
     # Any other dtype is a hard error
     errors.append(
-        "time coordinate must be datetime64[ns] or object convertible to "
-        f"datetime64[ns], got {time.dtype}"
+        "time coordinate must be datetime64[ns] or object convertible to datetime64[ns],"
+        f"got {time.dtype}"
     )
     return ds
 
@@ -290,9 +286,7 @@ def _check_1d_coords(
             if ds[name].values.ndim != 1:
                 errors.append(f"{name} must be 1D")
         except (KeyError, AttributeError, TypeError) as exc:
-            errors.append(
-                f"Failed checking dimensionality of '{name}': {exc}"
-            )
+            errors.append(f"Failed checking dimensionality of '{name}': {exc}")
 
 
 def _check_vars_dims_and_dtype(
@@ -323,13 +317,9 @@ def _check_vars_dims_and_dtype(
         try:
             var = ds[name]
             if var.dims != expected_dims:
-                errors.append(
-                    f"{name} must have dims {expected_dims}, got {var.dims}"
-                )
+                errors.append(f"{name} must have dims {expected_dims}, got {var.dims}")
             if not np.issubdtype(var.dtype, np.number):
-                errors.append(
-                    f"{name} must be numeric, got dtype {var.dtype}"
-                )
+                errors.append(f"{name} must be numeric, got dtype {var.dtype}")
         except (KeyError, AttributeError, TypeError, ValueError) as exc:
             errors.append(f"Failed checking variable '{name}': {exc}")
 
@@ -337,14 +327,15 @@ def _check_vars_dims_and_dtype(
 def _print_report(header: str, errors: List[str]) -> None:
     """Pretty-print validation report."""
     print("=" * 50)
+
     print(header)
     for err in errors:
         print("  -", err)
     if "FAILED" in header:
         print("\nTotal errors:", len(errors))
+
     print("=" * 50)
 
-# ---------- CLI / main ----------
 
 def _load_merged_dataset_from_folder(folder: str) -> xr.Dataset:
     """
@@ -381,14 +372,8 @@ def _load_merged_dataset_from_folder(folder: str) -> xr.Dataset:
 
 
 def main() -> None:
-    """
-    Command-line entry point.
+    """Command-line entry point."""
 
-    Usage
-    -----
-    python lowres_fmt_validator.py sfc /path/to/folder_with_nc_files
-    python lowres_fmt_validator.py prs /path/to/folder_with_nc_files
-    """
     parser = argparse.ArgumentParser(
         description="Validate low-res SFC/PRS datasets "
         "found in a folder of NetCDF files."

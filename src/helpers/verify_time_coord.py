@@ -3,7 +3,7 @@ NetCDF time-axis validator for monthly climate datasets.
 
 This script recursively scans a directory tree for NetCDF files whose
 filenames contain a YYYYMM timestamp (optionally followed by `_day`),
-and verifies that each file’s time coordinate is consistent with
+and verifies that each file's time coordinate is consistent with
 expected daily data for that month.
 
 Validation checks include:
@@ -139,7 +139,7 @@ def collect_hour_issues(times: pd.DatetimeIndex, state: HourState, path: Path
         hr = hours[0]
         if state.last_hour is not None and hr != state.last_hour:
             prev = state.last_path.name if state.last_path else "unknown"
-            issues.append(f"hour_change={state.last_hour:02d}->{hr:02d} (prev={prev})")
+            issues.append(f"hour_change= {state.last_hour:02d}->{hr:02d} (prev= {prev})")
         return issues, HourState(last_hour=hr, last_path=path)
 
     issues.append("hours=none")
@@ -171,7 +171,7 @@ def check_file(path: Path, month: int, state: HourState) -> HourState:
     return new_state
 
 
-def main():
+def main() -> None:
     """Verify time count for NetCDF files under <top_folder>."""
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} <top_folder>")
