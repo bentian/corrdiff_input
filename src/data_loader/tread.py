@@ -42,17 +42,17 @@ TREAD_CHANNELS_ORIGINAL = {
     "U10": "eastward_wind_10m",
     "V10": "northward_wind_10m",
     # C1.x
-    "UV10": "windspeed_10m",
-    "RH2": "relative_humidity_2m",
-    "PSFC": "sea_level_pressure",
+    # "UV10": "windspeed_10m",
+    # "RH2": "relative_humidity_2m",
+    # "PSFC": "sea_level_pressure",
 }
 TREAD_CHANNELS = {
     # Baseline
     "TP": "precipitation",
     **TREAD_CHANNELS_ORIGINAL,
     # C1.x
-    "T2MAX": "maximum_temperature_2m",
-    "T2MIN": "minimum_temperature_2m",
+    # "T2MAX": "maximum_temperature_2m",
+    # "T2MIN": "minimum_temperature_2m",
 }
 
 def get_tread_channels() -> Dict[str, str]:
