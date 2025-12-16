@@ -136,7 +136,9 @@ dependencies:
   - locket=1.0.0=pyhd8ed1ab_0
   - lz4=4.4.5=py311h1c460e0_0
   - lz4-c=1.10.0=h5888daf_1
+  - markdown-it-py=4.0.0=pyhd8ed1ab_0
   - markupsafe=3.0.3=py311h3778330_0
+  - mdurl=0.1.2=pyhd8ed1ab_1
   - mpi=1.0.1=mpich
   - mpich=4.3.2=h79b1c89_100
   - msgpack-python=1.1.2=py311hdf67eae_1
@@ -163,6 +165,7 @@ dependencies:
   - pyarrow=22.0.0=py311h38be061_0
   - pyarrow-core=22.0.0=py311h342b5a4_0_cpu
   - pycparser=2.22=pyh29332c3_1
+  - pygments=2.19.2=pyhd8ed1ab_0
   - pysocks=1.7.1=pyha55dd90_7
   - python=3.11.14=hd63d673_2_cpython
   - python-dateutil=2.9.0.post0=pyhe01879c_2
@@ -173,6 +176,7 @@ dependencies:
   - rdma-core=60.0=hecca717_0
   - re2=2025.11.05=h5301d42_0
   - readline=8.2=h8c095d6_2
+  - rich=14.2.0=pyhcf101f3_0
   - s2n=1.6.0=h8399546_1
   - scipy=1.16.3=py311h1e13796_1
   - setuptools=80.9.0=pyhff2d567_0
