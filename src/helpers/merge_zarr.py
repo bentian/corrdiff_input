@@ -127,8 +127,16 @@ def main():
     # Open datasets with Dask
     datasets = [xr.open_dataset(zarr_file, engine='zarr', chunks={}) for zarr_file in zarr_files]
 
-    # Concatenate datasets along the time dimension
-    combined = xr.concat(datasets, dim='time')
+    # Concatenate datasets along the time dimension.
+    # data_vars="all":
+    # - All data variables from all datasets are included.
+    # - If variables overlap, xarray tries to merge them.
+    # coords="different":
+    # - Coordinates that differ across datasets are preserved
+    # compat="equals":
+    # - Any variabld/coord other than the concat dimension must be the same
+    combined = xr.concat(datasets, dim='time', \
+                         data_vars="all", coords="different", compat="equals")
 
     # Recompute *_center, *_scale, *_valid fields
     combined = recompute_fields(combined)
