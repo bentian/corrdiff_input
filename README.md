@@ -5,7 +5,7 @@
 - TReAD (Taiwan ReAnalysis Downscaling Data)
 - TaiESM 3.5 km / TaiESM 100 km (Taiwan Earth System Model, for SSP climate scenarios)
 
-![image](graphic/infograph.png)
+![image](graphic/workflow.png)
 
 The pipeline:
 1. Loads raw NetCDF files
@@ -13,7 +13,7 @@ The pipeline:
 3. Normalizes, centers & stacks channels into CorrDiff-compatible tensors
 4. Outputs the consolidated dataset as a compressed Zarr store
 
-More details in [intro deck](graphic/intro_deck.pdf).
+More information can be found in [intro deck](graphic/intro_deck.pdf).
 
 # 🗂 Features
 ✅ Unified Reference Grid
