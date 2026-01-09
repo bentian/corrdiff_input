@@ -72,7 +72,7 @@ def main():
                            tag=f"{exp_domain}_{train_config[:3]}")
             write_corrdiff_zarr(ds, f"cordex_train_{exp_domain}_{train_config[:3]}.zarr")
 
-            # test (TG / OOSG) × (perfect / imperfect)
+            # test (TG / OOSG) x (perfect / imperfect)
             # for test_config, perfect in product(["TG", "OOSG"], [False, True]):
             #     perfect_suffix = "perfect" if perfect else "imperfect"
 

@@ -164,28 +164,42 @@ def align_static_grid(
     )
 
 
-def get_train_datasets(exp_domain: str, train_config: str
-                       ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
+def get_train_datasets(
+    exp_domain: str,
+    train_config: str
+) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
     """
-    Load and return standardized CORDEX training datasets.
+    Load and construct standardized CORDEX training datasets for CorrDiff.
+
+    This function prepares both high-resolution (HR) and low-resolution (LR)
+    training data for a given experiment domain and training configuration.
+    It aligns all datasets to a common static grid, standardizes variable and
+    dimension names, stacks LR pressure levels, regrids LR fields to the HR
+    orography grid, and attaches static orography and grid coordinates.
 
     Parameters
     ----------
-    exp_domain:
+    exp_domain : str
         Experiment domain identifier (e.g., "ALPS", "NZ").
-    train_config:
-        Training configuration identifier (e.g., "ESD_pseudo_reality", "Emulator_hist_future").
+    train_config : str
+        Training configuration identifier
+        (e.g., "ESD_pseudo_reality", "Emulator_hist_future").
 
     Returns
     -------
-    hr_out:
-        Standardized HR target dataset on (time, south_north, west_east).
-    lr_pre_regrid:
-        LR dataset stacked into (time, level, lat, lon) *before* regridding.
-    lr_out:
-        LR dataset regridded onto the orography grid, with standardized names and coords.
-    static_ds:
-        Static fields dataset providing the LR target grid (lat/lon/orog).
+    hr_out : xr.Dataset
+        High-resolution target dataset with standardized variables and dimensions,
+        on (time, south_north, west_east), including 2D XLAT/XLONG coordinates.
+    lr_pre : xr.Dataset
+        Low-resolution predictor dataset before regridding, stacked by pressure
+        level on (time, level, lat/lon or y/x).
+    lr_out : xr.Dataset
+        Low-resolution dataset regridded onto the static (orography) grid, with
+        standardized variable names and dimensions
+        (time, level, south_north, west_east), including orography and XLAT/XLONG.
+    grid_coords : xr.Dataset
+        Dataset containing only the 2D grid coordinates (XLAT, XLONG) on
+        (south_north, west_east), suitable for downstream reuse.
     """
     static_ds = get_static_dataset(exp_domain, train_config)
     grid, xlat_2d, xlong_2d, dim_rename = align_static_grid(static_ds)
@@ -265,5 +279,59 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     print(get_test_paths(exp_domain, test_config, perfect))
 
     static_ds = get_static_dataset(exp_domain, train_config)
+    grid, xlat_2d, xlong_2d, dim_rename = align_static_grid(static_ds)
 
-    return None, None, None, static_ds
+    # LR
+    pred = load_ds(get_test_paths(exp_domain, test_config, perfect))
+
+    ch = [c for c in CORDEX_LR_CHANNELS if "pressure" in c]
+    pressures = sorted({c["pressure"] for c in ch})
+    rename_vars = {c["name"]: c["variable"] for c in ch}
+
+    # Stack by level
+    lr_pre = xr.Dataset({
+        s: xr.concat(
+            [pred[f"{s}_{p}"] for p in ps],
+            dim=xr.IndexVariable("level", [float(p) for p in ps]),
+        )
+        for s in rename_vars
+        for ps in ([p for p in pressures if f"{s}_{p}" in pred],)
+    })
+
+    # Regrid
+    lr_rg = (
+        regrid_dataset(lr_pre, grid)
+        .rename({**dim_rename, **rename_vars})
+        .transpose("time", "level", "south_north", "west_east")
+        .chunk(time=1, level=1)
+    )
+
+    # Preprocess orography
+    orography = (
+        static_ds["orog"]
+        .rename(dim_rename).astype("float32")
+        .expand_dims(time=lr_rg.time)
+        .transpose("time", "south_north", "west_east")
+        .chunk(time=1)
+    )
+
+    # Final LR with orography
+    lr_out = (
+        xr.Dataset(
+            coords={"time": lr_rg.time, "level": lr_rg.level, "XLAT": xlat_2d, "XLONG": xlong_2d},
+            data_vars={**lr_rg.data_vars, "orography": orography},
+            attrs={"regrid_method": "bilinear"},
+        )
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+    )
+    print(f"\nCordex LR [train] =>\n {lr_out}")
+
+    # Grid coords
+    grid_coords = xr.Dataset(
+        coords={
+            "XLAT": (("south_north", "west_east"), xlat_2d.data),
+            "XLONG": (("south_north", "west_east"), xlong_2d.data),
+        }
+    )
+
+    return None, lr_pre, lr_out, grid_coords
