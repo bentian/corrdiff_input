@@ -26,6 +26,7 @@ Supported data sources
 
 - CORDEX (training datasets):
     * `get_cordex_train_datasets`
+    * `get_cordex_test_datasets`
     * `get_cordex_train_hr_channels`
     * `get_cordex_train_lr_channels`
 
@@ -45,10 +46,11 @@ from .tread import get_tread_dataset, get_tread_channels
 from .era5 import get_era5_dataset, get_era5_channels
 from .taiesm3p5 import get_taiesm3p5_dataset, get_taiesm3p5_channels
 from .taiesm100 import get_taiesm100_dataset, get_taiesm100_channels
-from .cordex_train import (
-    get_datasets as get_cordex_train_datasets,
-    get_hr_channels as get_cordex_train_hr_channels,
-    get_lr_channels as get_cordex_train_lr_channels
+from .cordex import (
+    get_train_datasets as get_cordex_train_datasets,
+    get_test_datasets as get_cordex_test_datasets,
+    get_hr_channels as get_cordex_hr_channels,
+    get_lr_channels as get_cordex_lr_channels
 )
 
 
@@ -61,7 +63,7 @@ __all__ = [
     "get_taiesm3p5_dataset",        "get_taiesm3p5_channels",
     "get_taiesm100_dataset",        "get_taiesm100_channels",
 
-    # Cordex train
-    "get_cordex_train_datasets",    "get_cordex_train_hr_channels",
-    "get_cordex_train_lr_channels"
+    # Cordex
+    "get_cordex_train_datasets",    "get_cordex_test_datasets",
+    "get_cordex_hr_channels",       "get_cordex_lr_channels"
 ]

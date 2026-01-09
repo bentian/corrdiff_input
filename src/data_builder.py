@@ -52,7 +52,8 @@ from data_loader import (
     get_era5_dataset, get_era5_channels,
     get_taiesm3p5_dataset, get_taiesm3p5_channels,
     get_taiesm100_dataset, get_taiesm100_channels,
-    get_cordex_train_datasets, get_cordex_train_hr_channels, get_cordex_train_lr_channels,
+    get_cordex_train_datasets, get_cordex_test_datasets,
+    get_cordex_hr_channels, get_cordex_lr_channels,
 )
 from tensor_fields import get_cwb_fields, get_era5_fields
 
@@ -283,12 +284,37 @@ def generate_cordex_train_outputs(
         get_cordex_train_datasets(exp_domain, train_config)
 
     hr_outputs = (
-        *get_cwb_fields(hr_out, get_cordex_train_hr_channels()),
+        *get_cwb_fields(hr_out, get_cordex_hr_channels()),
         hr_out,     # replace pre_regrid with `hr_out` given no regrid on `hr`
         hr_out
     )
     lr_outputs = (
-        *get_era5_fields(lr_out, get_cordex_train_lr_channels()),
+        *get_era5_fields(lr_out, get_cordex_lr_channels()),
+        lr_pre_regrid,
+        lr_out
+    )
+    grid_coords = { key: static_ds.rename({"lat": "XLAT", "lon": "XLONG"}).coords[key]
+                    for key in GRID_COORD_KEYS }
+
+    return hr_outputs, lr_outputs, grid_coords
+
+
+def generate_cordex_test_outputs(
+    exp_domain: str,
+    train_config: str,
+    test_config: str,
+    perfect: bool
+) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+    hr_out, lr_pre_regrid, lr_out, static_ds = \
+        get_cordex_test_datasets(exp_domain, train_config, test_config, perfect)
+
+    hr_outputs = (
+        *get_cwb_fields(hr_out, get_cordex_hr_channels()),
+        hr_out,     # replace pre_regrid with `hr_out` given no regrid on `hr`
+        hr_out
+    )
+    lr_outputs = (
+        *get_era5_fields(lr_out, get_cordex_lr_channels()),
         lr_pre_regrid,
         lr_out
     )

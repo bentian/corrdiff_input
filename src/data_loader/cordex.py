@@ -17,23 +17,23 @@ Notes
 - Domain/config determine which files are loaded and whether a future-period suffix is used.
 """
 from pathlib import Path
-from typing import Dict, List, Tuple, Literal
+from typing import Dict, List, Tuple
 
 import xarray as xr
 
 from .util import is_local_testing, regrid_dataset
 
 
-DEBUG = False  # Set to True to enable debugging
+DEBUG = True  # Set to True to enable debugging
 
-ExpDomain = Literal["ALPS", "SA", "NZ"]
-TrainConfig = Literal["ESD_pseudo_reality", "Emulator_hist_future"]
-TRAIN_SET: Dict[ExpDomain, str] = {
+TRAIN_SET: Dict[str, str] = {
     "ALPS": "CNRM-CM5",
     "NZ": "ACCESS-CM2"
 }
-DIM_YX_RENAME = {"y": "south_north", "x": "west_east"}
-DIM_LATLON_RENAME = {"lat": "south_north", "lon": "west_east"}
+IMPERFECT_SET: Dict[str, str] = {
+    "ALPS": "MPI-ESM-LR",
+    "NZ": "EC-Earth3"
+}
 
 CORDEX_HR_CHANNELS: Dict[str, dict] = {
     "pr": "precipitation",
@@ -85,6 +85,9 @@ def align_static_grid(
         Mapping to rename spatial dims to {"south_north","west_east"} for this grid.
         (Either {"y":"south_north","x":"west_east"} or {"lat":"south_north","lon":"west_east"})
     """
+    DIM_YX_RENAME = {"y": "south_north", "x": "west_east"}
+    DIM_LATLON_RENAME = {"lat": "south_north", "lon": "west_east"}
+    
     # Choose which dim rename to use:
     # - curvilinear grid (ALPS): lat/lon are 2D on (y,x)
     # - regular grid (NZ): lat/lon are 1D dims (lat,lon)
@@ -224,29 +227,46 @@ def get_lr_dataset(
 # -------------------------------------------------------------------
 # Directory / File paths
 # -------------------------------------------------------------------
-def get_data_dir() -> str:
-    """Get data directory including train and test datasets."""
-    return "../data/cordex/" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX"
+def data_root() -> Path:
+    """Root directory for CORDEX train/test data."""
+    return Path("../data/cordex" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX")
 
-def get_train_file_paths(
-    exp_domain: ExpDomain,
-    train_config: TrainConfig
-) -> List[str]:
-    """Get file paths to load HR target, LR predictors, and static fields."""
-    folder_path = Path(get_data_dir()) / f"{exp_domain}_domain" / "train" / train_config
-    extra = "_2080-2099" if train_config == "Emulator_hist_future" else ""
+def train_dir(exp_domain: str, train_config: str) -> Path:
+    """Train directory for a given domain/config."""
+    return data_root() / f"{exp_domain}_domain" / "train" / train_config
 
-    return (
-        folder_path / "target" / f"pr_tasmax_{TRAIN_SET[exp_domain]}_1961-1980{extra}.nc",
-        folder_path / "predictors" / f"{TRAIN_SET[exp_domain]}_1961-1980{extra}.nc",
-        folder_path / "predictors" / "Static_fields.nc"
+def get_static_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
+    """Get static fields dataset (lat/lon/orog grid)."""
+    return xr.open_mfdataset(
+        train_dir(exp_domain, train_config) / "predictors" / "Static_fields.nc"
     )
 
+def get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
+    """Get HR target + LR predictors paths for training."""
+    base = train_dir(exp_domain, train_config)
+    suffix = "_2080-2099" if train_config == "Emulator_hist_future" else ""
+    model = TRAIN_SET[exp_domain]
 
-def get_datasets(
-    exp_domain: ExpDomain = "ALPS",
-    train_config: TrainConfig = "ESD_pseudo_reality",
-) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
+    return [
+        base / "target" / f"pr_tasmax_{model}_1961-1980{suffix}.nc",
+        base / "predictors" / f"{model}_1961-1980{suffix}.nc",
+    ]
+
+def get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Path]:
+    """Get LR predictors paths for test periods (historical/mid/end century)."""
+    base = Path(data_root()) / f"{exp_domain}_domain" / "test"
+    prefix = TRAIN_SET[exp_domain] if test_config == "TG" else IMPERFECT_SET[exp_domain]
+
+    return [
+        base / p / "predictors" / ("perfect" if perfect else "imperfect") / f"{prefix}_{y}.nc"
+        for p, y in [
+            ("historical","1981-2000"), ("mid_century","2041-2060"), ("end_century","2080-2099")
+        ]
+    ]
+
+
+def get_train_datasets(exp_domain: str, train_config: str
+                       ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Load and return standardized CORDEX training datasets.
 
@@ -268,8 +288,31 @@ def get_datasets(
     static_ds:
         Static fields dataset providing the LR target grid (lat/lon/orog).
     """
+    static_ds = get_static_dataset(exp_domain, train_config)
+    target_path, predictor_path = get_train_paths(exp_domain, train_config)
+
+    # HR
+    hr_out = get_hr_dataset(target_path, static_ds)
+    print(f"\nCordex HR [train] =>\n {hr_out}")
+
+    # LR
+    lr_pre_regrid, lr_out = get_lr_dataset(predictor_path, static_ds)
+    print(f"\nCordex LR [train] =>\n {lr_out}")
+
+    return hr_out, lr_pre_regrid, lr_out, static_ds
+
+
+def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perfect: bool
+                      ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
+    print(f"get_test_datasets: {exp_domain} {train_config} {test_config} {perfect}")
+    print(get_test_paths(exp_domain, test_config, perfect))
+
+    static_ds = get_static_dataset(exp_domain, train_config)
+
+    return None, None, None, static_ds
+
     target_path, predictor_path, static_fields_path = \
-        get_train_file_paths(exp_domain, train_config)
+        get_train_paths(exp_domain, test_config, perfect)
     static_ds = xr.open_mfdataset(static_fields_path)
 
     # HR
