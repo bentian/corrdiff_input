@@ -66,7 +66,7 @@ def get_file_paths(
     train_config: TrainConfig
 ) -> List[str]:
     """Get file paths to load HR target, LR predictors, and static fields."""
-    folder = "../data/cordex/" if is_local_testing() else "/lfs/home/corrdiff/40-CORDEX"
+    folder = "../data/cordex/" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX"
 
     folder_path = Path(folder) / f"{exp_domain}_domain" / "train" / train_config
     extra = "_2080-2099" if train_config == "Emulator_hist_future" else ""
@@ -126,15 +126,19 @@ def get_hr_dataset(target_path: Path, static_fields: xr.Dataset) -> xr.Dataset:
     _, XLAT, XLONG, dim_rename = align_static_grid(static_fields)
 
     return (
-        target.drop_attrs()                             # remove all attributes
-        .assign_coords(time=target.time.dt.floor("D"))  # normalize to daily timestamps
-        .sel(time=slice("1961-01-01", "1961-01-31"))    # TODO remove
+        target.drop_attrs()                                 # remove all attributes
+        .assign_coords(time=target.time.dt.floor("D"))      # normalize to daily timestamps
+        # .sel(time=slice("1961-01-01", "1961-01-31"))      # DEBUG
+
+        # Rename spatial dimensions and data variables to the standardized CorrDiff schema
+        # (e.g. lat/lon or y/x → south_north/west_east, and HR variable names)
         .rename({**dim_rename, **CORDEX_HR_CHANNELS})
-        .assign_coords(XLAT=XLAT, XLONG=XLONG)
+
+        .assign_coords(XLAT=XLAT, XLONG=XLONG)              # attach 2D coords to the grid
         .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
-        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]
-        .transpose("time", "south_north", "west_east")
-        .chunk(time=1)
+        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]   # keep needed coords & vars
+        .transpose("time", "south_north", "west_east")      # enforce consistent dimension order
+        .chunk(time=1)                                      # one timestep per chunk
     )
 
 
@@ -159,7 +163,7 @@ def get_lr_datasets(
             [
                 predictors[f"{s}_{p}"]
                 .assign_coords(time=predictors.time.dt.floor("D"))  # normalize to daily timestamps
-                .sel(time=slice("1961-01-01", "1961-01-31"))        # TODO remove
+                # .sel(time=slice("1961-01-01", "1961-01-31"))      # DEBUG
                 for p in pressures if f"{s}_{p}" in predictors
             ],
             dim=xr.IndexVariable("level", [
@@ -174,33 +178,36 @@ def get_lr_datasets(
     # Regrid LR -> static grid, then standardize dims/names
     lr_regrid = (
         regrid_dataset(lr, grid)
+        # Rename spatial dimensions and data variables to the standardized CorrDiff schema
+        # (e.g. lat/lon or y/x → south_north/west_east, and HR variable names)
         .rename({**dim_rename, **rename_vars})
         .transpose("time", "level", "south_north", "west_east")
-        .chunk(time=1, level=1)
-        .assign(orography=static_fields["orog"].rename(dim_rename).astype("float32"))
-        .assign_coords(XLAT=XLAT, XLONG=XLONG)
+        .chunk(time=1, level=1)     # (one timestep × one level per chunk)
     )
 
-    # Attach orography on matching (time, south_north, west_east)
-    # (regrid not needed if orog is already on the target grid; we only align dims)
-    orog_da = static_fields["orog"].rename(dim_rename).astype("float32")
-    lr_regrid["orography"] = (
-        orog_da
+    # Prepare static orography on (time, south_north, west_east)
+    orography = (
+        static_fields["orog"]
+        .rename(dim_rename).astype("float32")
         .expand_dims(time=lr_regrid.time)
         .transpose("time", "south_north", "west_east")
         .chunk(time=1)
     )
 
-    lr_out = xr.Dataset(
-        coords={
-            "time": lr_regrid.time,
-            "level": lr_regrid.level,
-            "XLAT": XLAT,
-            "XLONG": XLONG,
-        },
-        data_vars=lr_regrid.data_vars,
-        attrs={"regrid_method": "bilinear"},
-    ).drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+    # Assemble final LR dataset
+    lr_out = (
+        xr.Dataset(
+            coords={
+                "time": lr_regrid.time,
+                "level": lr_regrid.level,
+                "XLAT": XLAT,
+                "XLONG": XLONG,
+            },
+            data_vars={**lr_regrid.data_vars, "orography": orography},
+            attrs={"regrid_method": "bilinear"},
+        )
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+    )
 
     return lr, lr_out
 
