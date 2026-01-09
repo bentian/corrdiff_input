@@ -51,7 +51,8 @@ from data_loader import (
     get_tread_dataset, get_tread_channels,
     get_era5_dataset, get_era5_channels,
     get_taiesm3p5_dataset, get_taiesm3p5_channels,
-    get_taiesm100_dataset, get_taiesm100_channels
+    get_taiesm100_dataset, get_taiesm100_channels,
+    get_cordex_train_datasets, get_cordex_train_hr_channels, get_cordex_train_lr_channels,
 )
 from tensor_fields import get_cwb_fields, get_era5_fields
 
@@ -123,11 +124,13 @@ def get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
 
     return grid, grid_coords, terrain
 
+
 # -------------------------------------------------------------------
 # TReAD & ERA5 outputs
 # -------------------------------------------------------------------
 
-def generate_cwa_outputs(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
+def generate_cwa_outputs(start_date: str, end_date: str
+                         ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Generates output datasets for TReAD and ERA5 based on a specified date range
     and a common reference grid.
@@ -178,7 +181,7 @@ def generate_cwa_outputs(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr
 # -------------------------------------------------------------------
 
 def generate_ssp_outputs(start_date: str, end_date: str, ssp_level: str
-                         ) -> Tuple[xr.Dataset, xr.Dataset]:
+                         ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Generates output datasets for TaiESM 3.5km and TaiESM 100km data under a
     specified Shared Socioeconomic Pathway (SSP) level and date range.
@@ -237,3 +240,62 @@ def validate_ssp_level(raw: str) -> str:
         raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
 
     return raw
+
+
+# -------------------------------------------------------------------
+# Cordex outputs
+# -------------------------------------------------------------------
+
+def generate_cordex_train_outputs(
+    exp_domain: str,
+    train_config: str
+) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+    """
+    Generate standardized CORDEX training outputs for CorrDiff.
+
+    This function loads CORDEX HR and LR datasets for a given experiment domain and
+    training configuration, applies all required preprocessing (time normalization,
+    regridding, variable renaming), and assembles the final outputs expected by the
+    CorrDiff training pipeline.
+
+    Parameters
+    ----------
+    exp_domain : str
+        Experiment domain identifier (e.g., "ALPS", "NZ").
+    train_config : str
+        Training configuration identifier
+        (e.g., "ESD_pseudo_reality", "Emulator_hist_future").
+
+    Returns
+    -------
+    hr_outputs : tuple[xr.Dataset, ...]
+        Tuple containing HR input fields followed by:
+        - the HR dataset used as the pre-regrid placeholder
+        - the final HR output dataset
+    lr_outputs : tuple[xr.Dataset, ...]
+        Tuple containing LR input fields followed by:
+        - the LR dataset before regridding
+        - the final regridded LR dataset
+    grid_coords : dict[str, xr.DataArray]
+        Dictionary of grid coordinate arrays (e.g., XLAT, XLONG) defining the spatial grid.
+    """
+    hr_out, lr_pre_regrid, lr_out, static_fields = \
+        get_cordex_train_datasets(exp_domain, train_config)
+
+    print(f"\nCordex HR [train] =>\n {hr_out}")
+    print(f"\nCordex LR [train] =>\n {lr_out}")
+
+    hr_outputs = (
+        *get_cwb_fields(hr_out, get_cordex_train_hr_channels()),
+        hr_out,     # replace pre_regrid with `hr_out` given no regrid on `hr`
+        hr_out
+    )
+    lr_outputs = (
+        *get_era5_fields(lr_out, get_cordex_train_lr_channels()),
+        lr_pre_regrid,
+        lr_out
+    )
+    grid_coords = { key: static_fields.rename({"lat": "XLAT", "lon": "XLONG"}).coords[key]
+                    for key in GRID_COORD_KEYS }
+
+    return hr_outputs, lr_outputs, grid_coords
