@@ -65,8 +65,61 @@ def get_lr_channels() -> dict:
 
 
 # -------------------------------------------------------------------
+# Directory / File paths
+# -------------------------------------------------------------------
+
+def data_root() -> Path:
+    """Root directory for CORDEX train/test data."""
+    return Path("../data/cordex" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX")
+
+
+def train_dir(exp_domain: str, train_config: str) -> Path:
+    """Train directory for a given domain/config."""
+    return data_root() / f"{exp_domain}_domain" / "train" / train_config
+
+
+def get_static_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
+    """Get static fields dataset (lat/lon/orog grid)."""
+    return xr.open_mfdataset(
+        train_dir(exp_domain, train_config) / "predictors" / "Static_fields.nc"
+    )
+
+
+def get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
+    """Get HR target + LR predictors paths for training."""
+    base = train_dir(exp_domain, train_config)
+    suffix = "_2080-2099" if train_config == "Emulator_hist_future" else ""
+    model = TRAIN_SET[exp_domain]
+
+    return [
+        base / "target" / f"pr_tasmax_{model}_1961-1980{suffix}.nc",
+        base / "predictors" / f"{model}_1961-1980{suffix}.nc",
+    ]
+
+
+def get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Path]:
+    """Get LR predictors paths for test periods (historical/mid/end century)."""
+    base = Path(data_root()) / f"{exp_domain}_domain" / "test"
+    prefix = TRAIN_SET[exp_domain] if test_config == "TG" else IMPERFECT_SET[exp_domain]
+
+    return [
+        base / p / "predictors" / ("perfect" if perfect else "imperfect") / f"{prefix}_{y}.nc"
+        for p, y in [
+            ("historical","1981-2000"), ("mid_century","2041-2060"), ("end_century","2080-2099")
+        ]
+    ]
+
+
+# -------------------------------------------------------------------
 # HR / LR Datasets
 # -------------------------------------------------------------------
+
+def load_ds(path: Path, debug_slice: slice = slice("1961-01-01", "1961-01-31")) -> xr.Dataset:
+    """Load a NetCDF dataset and normalize its time coordinate to daily resolution."""
+    ds = xr.open_mfdataset(path).assign_coords(time=lambda d: d.time.dt.floor("D"))
+    return ds.sel(time=debug_slice) if DEBUG else ds
+
+
 def align_static_grid(
     statid_ds: xr.Dataset
 ) -> Tuple[xr.Dataset, xr.DataArray, xr.DataArray, Dict[str, str]]:
@@ -111,160 +164,6 @@ def align_static_grid(
     )
 
 
-def load_dataset_and_align_grid(
-    ds_path: Path,
-    static_ds: xr.Dataset,
-    debug_slice: slice = slice("1961-01-01", "1961-01-31"),
-) -> Tuple[xr.Dataset, xr.Dataset, xr.DataArray, xr.DataArray, Dict[str, str]]:
-    """
-    Load dataset with daily timestamps and align it to the static grid.
-
-    Returns
-    -------
-    target_ds : xr.Dataset
-        Target dataset with time floored to daily (and optionally time-sliced in debug).
-    grid : xr.Dataset
-        Dataset with keys {"lat","lon"} for xesmf regridding (1D or 2D).
-    xlat_2d : xr.DataArray
-        2D XLAT on (south_north, west_east).
-    xlong_2d : xr.DataArray
-        2D XLONG on (south_north, west_east).
-    dim_rename : dict[str, str]
-        Spatial dim rename mapping for the static grid.
-    """
-    ds = xr.open_mfdataset(ds_path).assign_coords(time=lambda ds: ds.time.dt.floor("D"))
-    if DEBUG:
-        ds = ds.sel(time=debug_slice)
-
-    # Align static grid (handles both 1D lat/lon and 2D lat/lon)
-    grid, xlat_2d, xlong_2d, dim_rename = align_static_grid(static_ds)
-
-    return ds, grid, xlat_2d, xlong_2d, dim_rename
-
-
-def get_hr_dataset(target_path: Path, static_ds: xr.Dataset) -> xr.Dataset:
-    """Load and standardize the CORDEX HR target dataset."""
-    target_ds, _, xlat_2d, xlong_2d, dim_rename = \
-        load_dataset_and_align_grid(target_path, static_ds)
-
-    return (
-        target_ds.drop_attrs()                              # remove all attributes
-
-        # Rename spatial dimensions and data variables to the standardized CorrDiff schema
-        # (e.g. lat/lon or y/x → south_north/west_east, and HR variable names)
-        .rename({**dim_rename, **CORDEX_HR_CHANNELS})
-
-        .assign_coords(XLAT=xlat_2d, XLONG=xlong_2d)        # attach 2D coords to the grid
-        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
-        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]   # keep needed coords & vars
-        .transpose("time", "south_north", "west_east")      # enforce consistent dimension order
-        .chunk(time=1)                                      # one timestep per chunk
-    )
-
-
-def get_lr_dataset(
-    predictor_path: Path,
-    static_ds: xr.Dataset
-) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
-    """
-    Load LR predictors + static fields, stack pressure levels,
-    regrid to orography grid, and attach orography data.
-    """
-    predictor_ds, grid, xlat_2d, xlong_2d, dim_rename = \
-        load_dataset_and_align_grid(predictor_path, static_ds)
-
-    channels = [c for c in CORDEX_LR_CHANNELS if "pressure" in c]
-    pressures = sorted({c["pressure"] for c in channels})
-    rename_vars = {c["name"]: c["variable"] for c in channels}
-    src_names = sorted(rename_vars)
-
-    # Build (time, level, lat, lon) on the predictor grid
-    lr = xr.Dataset({
-        s: xr.concat(
-            [predictor_ds[f"{s}_{p}"] for p in ps],
-            dim=xr.IndexVariable("level", [float(p) for p in ps]),
-        )
-        for s in src_names
-        for ps in ([p for p in pressures if f"{s}_{p}" in predictor_ds],)
-    })
-
-    # Regrid LR -> static grid, then standardize dims/names
-    lr_regrid = (
-        regrid_dataset(lr, grid)
-        # Rename spatial dimensions and data variables to the standardized CorrDiff schema
-        # (e.g. lat/lon or y/x → south_north/west_east, and HR variable names)
-        .rename({**dim_rename, **rename_vars})
-        .transpose("time", "level", "south_north", "west_east")
-        .chunk(time=1, level=1)     # (one timestep × one level per chunk)
-    )
-
-    # Prepare static orography on (time, south_north, west_east)
-    orography = (
-        static_ds["orog"]
-        .rename(dim_rename).astype("float32")
-        .expand_dims(time=lr_regrid.time)
-        .transpose("time", "south_north", "west_east")
-        .chunk(time=1)
-    )
-
-    # Assemble final LR dataset
-    lr_out = (
-        xr.Dataset(
-            coords={
-                "time": lr_regrid.time,
-                "level": lr_regrid.level,
-                "XLAT": xlat_2d,
-                "XLONG": xlong_2d,
-            },
-            data_vars={**lr_regrid.data_vars, "orography": orography},
-            attrs={"regrid_method": "bilinear"},
-        )
-        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
-    )
-
-    return lr, lr_out
-
-# -------------------------------------------------------------------
-# Directory / File paths
-# -------------------------------------------------------------------
-def data_root() -> Path:
-    """Root directory for CORDEX train/test data."""
-    return Path("../data/cordex" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX")
-
-def train_dir(exp_domain: str, train_config: str) -> Path:
-    """Train directory for a given domain/config."""
-    return data_root() / f"{exp_domain}_domain" / "train" / train_config
-
-def get_static_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
-    """Get static fields dataset (lat/lon/orog grid)."""
-    return xr.open_mfdataset(
-        train_dir(exp_domain, train_config) / "predictors" / "Static_fields.nc"
-    )
-
-def get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
-    """Get HR target + LR predictors paths for training."""
-    base = train_dir(exp_domain, train_config)
-    suffix = "_2080-2099" if train_config == "Emulator_hist_future" else ""
-    model = TRAIN_SET[exp_domain]
-
-    return [
-        base / "target" / f"pr_tasmax_{model}_1961-1980{suffix}.nc",
-        base / "predictors" / f"{model}_1961-1980{suffix}.nc",
-    ]
-
-def get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Path]:
-    """Get LR predictors paths for test periods (historical/mid/end century)."""
-    base = Path(data_root()) / f"{exp_domain}_domain" / "test"
-    prefix = TRAIN_SET[exp_domain] if test_config == "TG" else IMPERFECT_SET[exp_domain]
-
-    return [
-        base / p / "predictors" / ("perfect" if perfect else "imperfect") / f"{prefix}_{y}.nc"
-        for p, y in [
-            ("historical","1981-2000"), ("mid_century","2041-2060"), ("end_century","2080-2099")
-        ]
-    ]
-
-
 def get_train_datasets(exp_domain: str, train_config: str
                        ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
     """
@@ -289,17 +188,75 @@ def get_train_datasets(exp_domain: str, train_config: str
         Static fields dataset providing the LR target grid (lat/lon/orog).
     """
     static_ds = get_static_dataset(exp_domain, train_config)
-    target_path, predictor_path = get_train_paths(exp_domain, train_config)
-
+    grid, xlat_2d, xlong_2d, dim_rename = align_static_grid(static_ds)
+    
     # HR
-    hr_out = get_hr_dataset(target_path, static_ds)
+    target_path, predictor_path = get_train_paths(exp_domain, train_config)
+    hr_out = (
+        load_ds(target_path).drop_attrs()
+        .rename({**dim_rename, **CORDEX_HR_CHANNELS})
+        .assign_coords(XLAT=xlat_2d, XLONG=xlong_2d)
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]
+        .transpose("time", "south_north", "west_east")
+        .chunk(time=1)
+    )
     print(f"\nCordex HR [train] =>\n {hr_out}")
 
     # LR
-    lr_pre_regrid, lr_out = get_lr_dataset(predictor_path, static_ds)
+    pred = load_ds(predictor_path)
+
+    ch = [c for c in CORDEX_LR_CHANNELS if "pressure" in c]
+    pressures = sorted({c["pressure"] for c in ch})
+    rename_vars = {c["name"]: c["variable"] for c in ch}
+
+    # Stack by level
+    lr_pre = xr.Dataset({
+        s: xr.concat(
+            [pred[f"{s}_{p}"] for p in ps],
+            dim=xr.IndexVariable("level", [float(p) for p in ps]),
+        )
+        for s in rename_vars
+        for ps in ([p for p in pressures if f"{s}_{p}" in pred],)
+    })
+
+    # Regrid
+    lr_rg = (
+        regrid_dataset(lr_pre, grid)
+        .rename({**dim_rename, **rename_vars})
+        .transpose("time", "level", "south_north", "west_east")
+        .chunk(time=1, level=1)
+    )
+
+    # Preprocess orography
+    orography = (
+        static_ds["orog"]
+        .rename(dim_rename).astype("float32")
+        .expand_dims(time=lr_rg.time)
+        .transpose("time", "south_north", "west_east")
+        .chunk(time=1)
+    )
+
+    # Final LR with orography
+    lr_out = (
+        xr.Dataset(
+            coords={"time": lr_rg.time, "level": lr_rg.level, "XLAT": xlat_2d, "XLONG": xlong_2d},
+            data_vars={**lr_rg.data_vars, "orography": orography},
+            attrs={"regrid_method": "bilinear"},
+        )
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+    )
     print(f"\nCordex LR [train] =>\n {lr_out}")
 
-    return hr_out, lr_pre_regrid, lr_out, static_ds
+    # Grid coords
+    grid_coords = xr.Dataset(
+        coords={
+            "XLAT": (("south_north", "west_east"), xlat_2d.data),
+            "XLONG": (("south_north", "west_east"), xlong_2d.data),
+        }
+    )
+
+    return hr_out, lr_pre, lr_out, grid_coords
 
 
 def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perfect: bool
@@ -310,17 +267,3 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     static_ds = get_static_dataset(exp_domain, train_config)
 
     return None, None, None, static_ds
-
-    target_path, predictor_path, static_fields_path = \
-        get_train_paths(exp_domain, test_config, perfect)
-    static_ds = xr.open_mfdataset(static_fields_path)
-
-    # HR
-    hr_out = get_hr_dataset(target_path, static_ds)
-    print(f"\nCordex HR [train] =>\n {hr_out}")
-
-    # LR
-    lr_pre_regrid, lr_out = get_lr_dataset(predictor_path, static_ds)
-    print(f"\nCordex LR [train] =>\n {lr_out}")
-
-    return hr_out, lr_pre_regrid, lr_out, static_ds

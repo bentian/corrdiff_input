@@ -280,7 +280,7 @@ def generate_cordex_train_outputs(
     grid_coords : dict[str, xr.DataArray]
         Dictionary of grid coordinate arrays (e.g., XLAT, XLONG) defining the spatial grid.
     """
-    hr_out, lr_pre_regrid, lr_out, static_ds = \
+    hr_out, lr_pre_regrid, lr_out, grid_coords = \
         get_cordex_train_datasets(exp_domain, train_config)
 
     hr_outputs = (
@@ -293,8 +293,6 @@ def generate_cordex_train_outputs(
         lr_pre_regrid,
         lr_out
     )
-    grid_coords = { key: static_ds.rename({"lat": "XLAT", "lon": "XLONG"}).coords[key]
-                    for key in GRID_COORD_KEYS }
 
     return hr_outputs, lr_outputs, grid_coords
 

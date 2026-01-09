@@ -41,10 +41,7 @@ def build_out(hr_outputs, lr_outputs, grid_coords, tag: str) -> xr.Dataset:
                 "era5_scale": ("era5_channel", lr["era5_scale"].data),
             },
         )
-        .drop_vars(
-            ["y", "x", "south_north", "west_east", "cwb_channel", "era5_channel"],
-            errors="ignore"
-        )
+        .drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
     )
 
     if DEBUG:
@@ -76,16 +73,16 @@ def main():
             write_corrdiff_zarr(ds, f"cordex_train_{exp_domain}_{train_config[:3]}.zarr")
 
             # test (TG / OOSG) × (perfect / imperfect)
-            for test_config, perfect in product(["TG", "OOSG"], [False, True]):
-                perfect_suffix = "perfect" if perfect else "imperfect"
+            # for test_config, perfect in product(["TG", "OOSG"], [False, True]):
+            #     perfect_suffix = "perfect" if perfect else "imperfect"
 
-                ds = build_out(
-                    *generate_cordex_test_outputs(exp_domain, train_config, test_config, perfect),
-                    tag=f"{exp_domain}_{test_config}_{perfect_suffix}"
-                )
-                write_corrdiff_zarr(
-                    ds, f"cordex_test_{exp_domain}_{test_config}_{perfect_suffix}.zarr"
-                )
+            #     ds = build_out(
+            #         *generate_cordex_test_outputs(exp_domain, train_config, test_config, perfect),
+            #         tag=f"{exp_domain}_{test_config}_{perfect_suffix}"
+            #     )
+            #     write_corrdiff_zarr(
+            #         ds, f"cordex_test_{exp_domain}_{test_config}_{perfect_suffix}.zarr"
+            #     )
 
 
 if __name__ == "__main__":
