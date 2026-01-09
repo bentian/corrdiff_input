@@ -29,7 +29,8 @@ TRAIN_SET: Dict[ExpDomain, str] = {
     "ALPS": "CNRM-CM5",
     "NZ": "ACCESS-CM2"
 }
-DIM_RENAME = {"y": "south_north", "x": "west_east"}
+DIM_YX_RENAME = {"y": "south_north", "x": "west_east"}
+DIM_LATLON_RENAME = {"lat": "south_north", "lon": "west_east"}
 
 CORDEX_HR_CHANNELS: Dict[str, dict] = {
     "pr": "precipitation",
@@ -66,6 +67,7 @@ def get_file_paths(
 ) -> List[str]:
     """Get file paths to load HR target, LR predictors, and static fields."""
     folder = "../data/cordex/" if is_local_testing() else "/lfs/home/corrdiff/40-CORDEX"
+
     folder_path = Path(folder) / f"{exp_domain}_domain" / "train" / train_config
     extra = "_2080-2099" if train_config == "Emulator_hist_future" else ""
 
@@ -76,49 +78,88 @@ def get_file_paths(
     )
 
 
-def get_hr_dataset(target_path: Path) -> xr.Dataset:
-    """Load and standardize the CORDEX HR target dataset."""
-    target = xr.open_mfdataset(target_path)
+def align_static_grid(
+    static_fields: xr.Dataset
+) -> Tuple[xr.Dataset, xr.DataArray, xr.DataArray, Dict[str, str]]:
+    """
+    Align static_fields to a consistent grid interface.
+
+    Returns
+    -------
+    grid : xr.Dataset
+        Dataset with keys {"lat","lon"} for xesmf regridding (1D or 2D).
+    xlat : xr.DataArray
+        2D XLAT on (south_north, west_east)
+    xlong : xr.DataArray
+        2D XLONG on (south_north, west_east)
+    dim_rename : dict
+        Mapping to rename spatial dims to {"south_north","west_east"} for this grid.
+        (Either {"y":"south_north","x":"west_east"} or {"lat":"south_north","lon":"west_east"})
+    """
+    # Choose which dim rename to use:
+    # - curvilinear grid (ALPS): lat/lon are 2D on (y,x)
+    # - regular grid (NZ): lat/lon are 1D dims (lat,lon)
+    dim_rename = DIM_YX_RENAME if {"y", "x"}.issubset(static_fields.dims) else DIM_LATLON_RENAME
+    if not set(dim_rename).issubset(static_fields.dims):
+        raise ValueError("static_fields must contain dims (y,x) or (lat,lon)")
+
+    grid = static_fields[["lat", "lon"]]
+
+    # make 2D XLAT/XLONG on (south_north, west_east)
+    xlat, xlon = (
+        (grid["lat"], grid["lon"])
+        if dim_rename is DIM_YX_RENAME
+        else xr.broadcast(grid["lat"], grid["lon"])
+    )
 
     return (
-        target
-        .assign_coords(time=target["time"].dt.floor("D"))       # normalize to daily timestamps
-        .sel(time=slice("1961-01-01", "1961-01-31"))            # TODO remove
-        .rename({                                               # rename coords & variables
-            "lat": "XLAT", "lon": "XLONG", **DIM_RENAME, **CORDEX_HR_CHANNELS
-        })
-        .drop_vars(DIM_RENAME.values())                         # drop 1D x/y coords (keep dims)
-        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]       # keep only needed variables
-        .transpose("time", *DIM_RENAME.values())                # enforce consistent dim order
-        .chunk({"time": 1, "south_north": -1, "west_east": -1}) # chunk for dask processing
+        grid,
+        xlat.astype("float32").rename(dim_rename).rename("XLAT"),
+        xlon.astype("float32").rename(dim_rename).rename("XLONG"),
+        dim_rename,
+    )
+
+
+def get_hr_dataset(target_path: Path, static_fields: xr.Dataset) -> xr.Dataset:
+    """Load and standardize the CORDEX HR target dataset."""
+    target = xr.open_mfdataset(target_path)
+    _, XLAT, XLONG, dim_rename = align_static_grid(static_fields)
+
+    return (
+        target.drop_attrs()                             # remove all attributes
+        .assign_coords(time=target.time.dt.floor("D"))  # normalize to daily timestamps
+        .sel(time=slice("1961-01-01", "1961-01-31"))    # TODO remove
+        .rename({**dim_rename, **CORDEX_HR_CHANNELS})
+        .assign_coords(XLAT=XLAT, XLONG=XLONG)
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]
+        .transpose("time", "south_north", "west_east")
+        .chunk(time=1)
     )
 
 
 def get_lr_datasets(
     predictors_path: Path,
-    static_fields_path: Path
+    static_fields: xr.Dataset
 ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Load LR predictors + static fields, stack pressure levels,
     regrid to orography grid, and attach orography data.
     """
     predictors = xr.open_mfdataset(predictors_path)
-    static_fields = xr.open_mfdataset(static_fields_path)
 
     channels = [c for c in CORDEX_LR_CHANNELS if "pressure" in c]
     pressures = sorted({c["pressure"] for c in channels})
     rename_vars = {c["name"]: c["variable"] for c in channels}
     src_names = sorted(rename_vars)
 
-    # Build LR datset by:
-    # 1) normalizing time to daily resolution,
-    # 2) stacking pressure-specific variables into a single `level` dimension
+    # Build (time, level, lat, lon) on the predictor grid
     lr = xr.Dataset({
         s: xr.concat(
             [
                 predictors[f"{s}_{p}"]
-                .assign_coords(time=predictors.time.dt.floor("D"))
-                .sel(time=slice("1961-01-01", "1961-01-31"))   # TODO remove
+                .assign_coords(time=predictors.time.dt.floor("D"))  # normalize to daily timestamps
+                .sel(time=slice("1961-01-01", "1961-01-31"))        # TODO remove
                 for p in pressures if f"{s}_{p}" in predictors
             ],
             dim=xr.IndexVariable("level", [
@@ -127,21 +168,26 @@ def get_lr_datasets(
         ) for s in src_names
     })
 
-    # Regrid LR dataset
-    grid = xr.Dataset({"lat": static_fields["lat"], "lon": static_fields["lon"]})
+    # Align static grid (handles both 1D lat/lon and 2D lat/lon)
+    grid, XLAT, XLONG, dim_rename = align_static_grid(static_fields)
+
+    # Regrid LR -> static grid, then standardize dims/names
     lr_regrid = (
         regrid_dataset(lr, grid)
-        .rename({**DIM_RENAME, **rename_vars})
-        .transpose("time", "level", *DIM_RENAME.values())
+        .rename({**dim_rename, **rename_vars})
+        .transpose("time", "level", "south_north", "west_east")
         .chunk(time=1, level=1)
+        .assign(orography=static_fields["orog"].rename(dim_rename).astype("float32"))
+        .assign_coords(XLAT=XLAT, XLONG=XLONG)
     )
 
-    # Append orography to LR dataset
+    # Attach orography on matching (time, south_north, west_east)
+    # (regrid not needed if orog is already on the target grid; we only align dims)
+    orog_da = static_fields["orog"].rename(dim_rename).astype("float32")
     lr_regrid["orography"] = (
-        static_fields["orog"]
-        .rename(DIM_RENAME)
+        orog_da
         .expand_dims(time=lr_regrid.time)
-        .transpose("time", *DIM_RENAME.values())
+        .transpose("time", "south_north", "west_east")
         .chunk(time=1)
     )
 
@@ -149,14 +195,14 @@ def get_lr_datasets(
         coords={
             "time": lr_regrid.time,
             "level": lr_regrid.level,
-            "XLAT":  static_fields["lat"].rename(DIM_RENAME).astype("float32"),
-            "XLONG": static_fields["lon"].rename(DIM_RENAME).astype("float32"),
+            "XLAT": XLAT,
+            "XLONG": XLONG,
         },
         data_vars=lr_regrid.data_vars,
-        attrs={"regrid_method": "bilinear", **lr.attrs},
-    ).drop_vars(["lat", "lon", *DIM_RENAME.values()], errors="ignore")
+        attrs={"regrid_method": "bilinear"},
+    ).drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
 
-    return lr, lr_out, static_fields
+    return lr, lr_out
 
 
 def get_datasets(
@@ -185,7 +231,12 @@ def get_datasets(
         Static fields dataset providing the LR target grid (lat/lon/orog).
     """
     target_path, predictors_path, static_fields_path = get_file_paths(exp_domain, train_config)
-    return (
-        get_hr_dataset(target_path),
-        *get_lr_datasets(predictors_path, static_fields_path)
-    )
+    static_fields = xr.open_mfdataset(static_fields_path)
+
+    hr_out = get_hr_dataset(target_path, static_fields)
+    print(f"\nCordex HR [train] =>\n {hr_out}")
+
+    lr_pre_regrid, lr_out = get_lr_datasets(predictors_path, static_fields)
+    print(f"\nCordex LR [train] =>\n {lr_out}")
+
+    return hr_out, lr_pre_regrid, lr_out, static_fields

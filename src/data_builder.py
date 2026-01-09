@@ -282,9 +282,6 @@ def generate_cordex_train_outputs(
     hr_out, lr_pre_regrid, lr_out, static_fields = \
         get_cordex_train_datasets(exp_domain, train_config)
 
-    print(f"\nCordex HR [train] =>\n {hr_out}")
-    print(f"\nCordex LR [train] =>\n {lr_out}")
-
     hr_outputs = (
         *get_cwb_fields(hr_out, get_cordex_train_hr_channels()),
         hr_out,     # replace pre_regrid with `hr_out` given no regrid on `hr`

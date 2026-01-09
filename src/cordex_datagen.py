@@ -1,3 +1,35 @@
+"""
+CorrDiff CORDEX Zarr dataset generator.
+
+This script assembles, verifies, and writes CORDEX-based training datasets
+for the CorrDiff framework. It combines high-resolution (HR) and low-resolution
+(LR) climate fields, applies normalization and regridding, and outputs a single
+consolidated dataset in Zarr format suitable for model training.
+
+Main responsibilities
+---------------------
+- Generate standardized HR and LR datasets via `generate_cordex_train_outputs`
+- Assemble CorrDiff training tensors and metadata into a single xarray.Dataset
+- Validate dataset structure, dimensions, and required variables
+- Persist the final dataset to Zarr with compression
+- Optionally dump intermediate NetCDF files for debugging
+
+Supported configurations
+------------------------
+- Multiple experiment domains (e.g. ALPS, NZ)
+- Multiple training configurations (e.g. ESD_pseudo_reality, Emulator_hist_future)
+
+Entry points
+------------
+- `generate_corrdiff_zarr`: generate and write a single Zarr dataset
+- `main`: batch-generate Zarr datasets for all domain/config combinations
+
+Notes
+-----
+- Output datasets are chunked and compressed for efficient training-time access.
+- Verification enforces spatial dimensions to be square and multiples of 16.
+- Debug mode (`DEBUG = True`) enables NetCDF dumps of intermediate regridding steps.
+"""
 from pathlib import Path
 
 import xarray as xr
@@ -85,12 +117,15 @@ def generate_output_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
         },
         coords={
             **{key: grid_coords[key] for key in GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2025-12-10 09:00:00", "ns"),  # Placeholder for timestamp
+            "XTIME": np.datetime64("2026-01-09 17:00:00", "ns"),  # Placeholder for timestamp
             "time": hr_data["cwb"].time,
             "cwb_variable": hr_data["cwb_variable"],
             "era5_scale": ("era5_channel", lr_data["era5_scale"].data),
         },
-    ).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
+    ).drop_vars(
+        ["y", "x", "south_north", "west_east", "cwb_channel", "era5_channel"],
+        errors="ignore"     # ignore error if (y, x) is absent
+    )
 
     # [DEBUG] Dump data pre- & post-regridding, and print output data slices
     if DEBUG:
@@ -209,7 +244,7 @@ def main():
     invoking `generate_corrdiff_zarr` for each Cartesian combination. This serves
     as the entry point for batch generation of CORDEX-based training data.
     """
-    exp_domains = ["ALPS"]
+    exp_domains = ["ALPS", "NZ"]
     train_configs = ["ESD_pseudo_reality", "Emulator_hist_future"]
 
     for exp_domain, train_config in product(exp_domains, train_configs):
