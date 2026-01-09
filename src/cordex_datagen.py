@@ -30,49 +30,13 @@ Notes
 - Verification enforces spatial dimensions to be square and multiples of 16.
 - Debug mode (`DEBUG = True`) enables NetCDF dumps of intermediate regridding steps.
 """
-from pathlib import Path
-
 import xarray as xr
 import numpy as np
-from numcodecs import Blosc
-from dask.diagnostics import ProgressBar
 
-from data_builder import (
-    GRID_COORD_KEYS, generate_cordex_train_outputs
-)
+from corrdiff_datagen import verify_dataset, write_to_zarr, dump_regrid_netcdf
+from data_builder import GRID_COORD_KEYS, generate_cordex_train_outputs
 
 DEBUG = False  # Set to True to enable debugging
-
-def dump_regrid_netcdf(
-    subdir: str,
-    hr_pre_regrid: xr.Dataset,
-    hr_post_regrid: xr.Dataset,
-    lr_pre_regrid: xr.Dataset,
-    lr_post_regrid: xr.Dataset
-) -> None:
-    """
-    Saves the provided datasets to NetCDF files within a specified subdirectory.
-
-    Parameters:
-        subdir (str): The subdirectory path where the NetCDF files will be saved.
-        hr_pre_regrid (xr.Dataset): The high-resolution dataset before regridding.
-        hr_post_regrid (xr.Dataset): The high-resolution dataset after regridding.
-        lr_pre_regrid (xr.Dataset): The low-resolution dataset before regridding.
-        lr_post_regrid (xr.Dataset): The low-resolution dataset after regridding.
-
-    Returns:
-        None
-    """
-    folder = Path(f"./nc_dump/{subdir}")
-    folder.mkdir(parents=True, exist_ok=True)
-
-    for dataset, name in [
-        (hr_pre_regrid, "highres_pre_regrid.nc"),
-        (hr_post_regrid, "highres_post_regrid.nc"),
-        (lr_pre_regrid, "lowres_pre_regrid.nc"),
-        (lr_post_regrid, "lowres_post_regrid.nc")
-    ]:
-        dataset.to_netcdf(folder / name)
 
 
 def generate_output_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
@@ -135,77 +99,6 @@ def generate_output_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
         )
 
     return out
-
-
-def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
-    """
-    Verifies an xarray.Dataset to ensure:
-    1. Dimensions 'south_north' and 'west_east' are equal and both are multiples of 16.
-    2. The dataset includes all specified coordinates and data variables.
-
-    Parameters:
-    - dataset: xarray.Dataset to verify.
-
-    Returns:
-    - A tuple (bool, str) where:
-      - bool: True if the dataset passes all checks, False otherwise.
-      - str: A message describing the result.
-    """
-    # Required dimensions, coordinates and data variables
-    required_dims = [
-        "time", "south_north", "west_east", "cwb_channel", "era5_channel"
-    ]
-    required_coords = [
-        "time", "XLONG", "XLAT", "cwb_pressure", "cwb_variable",
-        "era5_scale", "era5_pressure", "era5_variable"
-    ]
-    required_vars = [
-        "cwb", "cwb_center", "cwb_scale", "cwb_valid",
-        "era5", "era5_center", "era5_valid"
-    ]
-
-    # Check required dimensions
-    missing_dims = [dim for dim in required_dims if dim not in ds.dims]
-    if missing_dims:
-        return False, f"Missing required dimensions: {', '.join(missing_dims)}."
-    if ds.sizes["south_north"] != ds.sizes["west_east"]:
-        return False, "Dimensions 'south_north' and 'west_east' are not equal."
-    if ds.sizes["south_north"] % 16 != 0:
-        return False, "Dimensions 'south_north' and 'west_east' are not multiples of 16."
-
-    # Check coordinates
-    missing_coords = [coord for coord in required_coords if coord not in ds.coords]
-    if missing_coords:
-        return False, f"Missing required coordinates: {', '.join(missing_coords)}."
-
-    # Check data variables
-    missing_vars = [var for var in required_vars if var not in ds.data_vars]
-    if missing_vars:
-        return False, f"Missing required data variables: {', '.join(missing_vars)}."
-
-    # All checks passed
-    return True, "Dataset verification passed successfully."
-
-
-def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
-    """
-    Writes the given dataset to a Zarr storage format with compression.
-
-    Parameters:
-        out_path (str): The file path where the Zarr dataset will be saved.
-        out_ds (xr.Dataset): The dataset to be written to Zarr format.
-
-    Returns:
-        None
-    """
-    comp = Blosc(cname='zstd', clevel=3, shuffle=Blosc.SHUFFLE)
-    encoding = { var: {'compressor': comp} for var in out_ds.data_vars }
-
-    print(f"\nSaving data to {out_path}:")
-    with ProgressBar():
-        out_ds.to_zarr(out_path, mode='w', encoding=encoding, compute=True, zarr_format=2)
-
-    print(f"Data successfully saved to [{out_path}]")
 
 
 def generate_corrdiff_zarr(exp_domain: str, train_config: str) -> None:
