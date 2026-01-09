@@ -35,7 +35,6 @@ from pathlib import Path
 import xarray as xr
 import numpy as np
 from numcodecs import Blosc
-from itertools import product
 from dask.diagnostics import ProgressBar
 
 from data_builder import (
@@ -244,11 +243,9 @@ def main():
     invoking `generate_corrdiff_zarr` for each Cartesian combination. This serves
     as the entry point for batch generation of CORDEX-based training data.
     """
-    exp_domains = ["ALPS", "NZ"]
-    train_configs = ["ESD_pseudo_reality", "Emulator_hist_future"]
-
-    for exp_domain, train_config in product(exp_domains, train_configs):
-        generate_corrdiff_zarr(exp_domain, train_config)
+    for exp_domain in ["ALPS", "NZ"]:
+        for train_config in ["ESD_pseudo_reality", "Emulator_hist_future"]:
+            generate_corrdiff_zarr(exp_domain, train_config)
 
 
 if __name__ == "__main__":
