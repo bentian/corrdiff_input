@@ -65,24 +65,47 @@ def write_corrdiff_zarr(ds: xr.Dataset, path: str) -> None:
 
 
 def main():
-    for exp_domain in ["ALPS", "NZ"]:
+    """
+    Generate and write CorrDiff Zarr datasets for all CORDEX train and test configurations.
+
+    This function iterates over supported experiment domains and:
+    - Builds CorrDiff training datasets for all training configurations
+      (e.g., pseudo-reality, historical/future emulator)
+    - Builds CorrDiff test datasets for all GCM test sets (TG, OOSG),
+      for both perfect and imperfect predictor cases
+    - Serializes each resulting dataset to Zarr format using standardized
+      naming conventions
+
+    The first training configuration is used as the reference source of
+    static fields (e.g., orography) for all test datasets within a domain.
+
+    This function serves as the main entry point for batch generation of
+    CORDEX-based CorrDiff datasets.
+    """
+    domains = ["ALPS", "NZ"]
+    train_configs = ["ESD_pseudo_reality", "Emulator_hist_future"]
+    gcm_sets = ["TG", "OOSG"]
+
+    for exp_domain in domains:
         # train
-        for train_config in ["ESD_pseudo_reality", "Emulator_hist_future"]:
+        for train_config in train_configs:
             ds = build_out(*generate_cordex_train_outputs(exp_domain, train_config),
                            tag=f"{exp_domain}_{train_config[:3]}")
             write_corrdiff_zarr(ds, f"cordex_train_{exp_domain}_{train_config[:3]}.zarr")
 
-            # test (TG / OOSG) x (perfect / imperfect)
-            # for test_config, perfect in product(["TG", "OOSG"], [False, True]):
-            #     perfect_suffix = "perfect" if perfect else "imperfect"
+        train_config_orog = train_configs[0] # orography for test datasets
 
-            #     ds = build_out(
-            #         *generate_cordex_test_outputs(exp_domain, train_config, test_config, perfect),
-            #         tag=f"{exp_domain}_{test_config}_{perfect_suffix}"
-            #     )
-            #     write_corrdiff_zarr(
-            #         ds, f"cordex_test_{exp_domain}_{test_config}_{perfect_suffix}.zarr"
-            #     )
+        # test (TG / OOSG) x (perfect / imperfect)        
+        for test_config, perfect in product(gcm_sets, [False, True]):
+            perfect_suffix = "perfect" if perfect else "imperfect"
+
+            ds = build_out(
+                *generate_cordex_test_outputs(exp_domain, train_config_orog, test_config, perfect),
+                tag=f"{exp_domain}_{test_config}_{perfect_suffix}"
+            )
+            write_corrdiff_zarr(
+                ds, f"cordex_test_{exp_domain}_{test_config}_{perfect_suffix}.zarr"
+            )
 
 
 if __name__ == "__main__":

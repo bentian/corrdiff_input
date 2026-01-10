@@ -247,54 +247,56 @@ def validate_ssp_level(raw: str) -> str:
 # Cordex outputs
 # -------------------------------------------------------------------
 
-def generate_cordex_train_outputs(
-    exp_domain: str,
-    train_config: str
-) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
+def _assemble_cordex_outputs(
+    hr_out: xr.Dataset,
+    lr_pre: xr.Dataset,
+    lr_out: xr.Dataset,
+    grid_coords,
+) -> Tuple[tuple, tuple, xr.Dataset]:
     """
-    Generate standardized CORDEX training outputs for CorrDiff.
+    Assemble CorrDiff-ready HR and LR output tuples.
 
-    This function loads CORDEX HR and LR datasets for a given experiment domain and
-    training configuration, applies all required preprocessing (time normalization,
-    regridding, variable renaming), and assembles the final outputs expected by the
-    CorrDiff training pipeline.
+    This helper constructs the standardized output tuples expected by the
+    CorrDiff pipeline by:
+    - extracting and normalizing HR (CWB-style) fields from `hr_out`
+    - extracting and normalizing LR (ERA5-style) fields from `lr_out`
+    - appending pre- and post-regrid datasets in the expected order
 
     Parameters
     ----------
-    exp_domain : str
-        Experiment domain identifier (e.g., "ALPS", "NZ").
-    train_config : str
-        Training configuration identifier
-        (e.g., "ESD_pseudo_reality", "Emulator_hist_future").
+    hr_out : xr.Dataset
+        Final high-resolution dataset on the CorrDiff grid.
+    lr_pre : xr.Dataset
+        Low-resolution dataset before regridding (stacked by level).
+    lr_out : xr.Dataset
+        Low-resolution dataset after regridding to the CorrDiff grid.
+    grid_coords : xr.Dataset or dict
+        Dataset or mapping containing grid coordinate arrays (e.g., XLAT, XLONG).
 
     Returns
     -------
-    hr_outputs : tuple[xr.Dataset, ...]
-        Tuple containing HR input fields followed by:
-        - the HR dataset used as the pre-regrid placeholder
-        - the final HR output dataset
-    lr_outputs : tuple[xr.Dataset, ...]
-        Tuple containing LR input fields followed by:
-        - the LR dataset before regridding
-        - the final regridded LR dataset
-    grid_coords : dict[str, xr.DataArray]
-        Dictionary of grid coordinate arrays (e.g., XLAT, XLONG) defining the spatial grid.
+    hr_outputs : tuple
+        Tuple of HR outputs in CorrDiff order:
+        (fields, variable metadata, center, scale, valid mask, pre_regrid, post_regrid).
+    lr_outputs : tuple
+        Tuple of LR outputs in CorrDiff order:
+        (fields, metadata, center, scale, valid mask, pre_regrid, post_regrid).
+    grid_coords : xr.Dataset or dict
+        The unchanged grid coordinate container, forwarded for downstream use.
     """
-    hr_out, lr_pre_regrid, lr_out, grid_coords = \
-        get_cordex_train_datasets(exp_domain, train_config)
-
-    hr_outputs = (
-        *get_cwb_fields(hr_out, get_cordex_hr_channels()),
-        hr_out,     # replace pre_regrid with `hr_out` given no regrid on `hr`
-        hr_out
-    )
-    lr_outputs = (
-        *get_era5_fields(lr_out, get_cordex_lr_channels()),
-        lr_pre_regrid,
-        lr_out
-    )
-
+    hr_outputs = (*get_cwb_fields(hr_out, get_cordex_hr_channels()), hr_out, hr_out)
+    lr_outputs = (*get_era5_fields(lr_out, get_cordex_lr_channels()), lr_pre, lr_out)
     return hr_outputs, lr_outputs, grid_coords
+
+
+def generate_cordex_train_outputs(
+    exp_domain: str,
+    train_config: str
+) -> Tuple[tuple, tuple, xr.Dataset]:
+    """Generate CorrDiff training outputs from CORDEX datasets."""
+    return _assemble_cordex_outputs(
+        *get_cordex_train_datasets(exp_domain, train_config)
+    )
 
 
 def generate_cordex_test_outputs(
@@ -302,21 +304,8 @@ def generate_cordex_test_outputs(
     train_config: str,
     test_config: str,
     perfect: bool
-) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
-    hr_out, lr_pre_regrid, lr_out, static_ds = \
-        get_cordex_test_datasets(exp_domain, train_config, test_config, perfect)
-
-    hr_outputs = (
-        *get_cwb_fields(hr_out, get_cordex_hr_channels()),
-        hr_out,     # replace pre_regrid with `hr_out` given no regrid on `hr`
-        hr_out
+) -> Tuple[tuple, tuple, xr.Dataset]:
+    """Generate CorrDiff test outputs from CORDEX datasets."""
+    return _assemble_cordex_outputs(
+        *get_cordex_test_datasets(exp_domain, train_config, test_config, perfect)
     )
-    lr_outputs = (
-        *get_era5_fields(lr_out, get_cordex_lr_channels()),
-        lr_pre_regrid,
-        lr_out
-    )
-    grid_coords = { key: static_ds.rename({"lat": "XLAT", "lon": "XLONG"}).coords[key]
-                    for key in GRID_COORD_KEYS }
-
-    return hr_outputs, lr_outputs, grid_coords
