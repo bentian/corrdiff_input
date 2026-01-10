@@ -130,7 +130,7 @@ def get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Pat
     return [
         base / p / "predictors" / ("perfect" if perfect else "imperfect") / f"{prefix}_{y}.nc"
         for p, y in [
-            ("historical","1981-2000"), ("mid_century","2041-2060"), ("end_century","2080-2099")
+            ("historical", "1981-2000"), ("mid_century", "2041-2060"), ("end_century", "2080-2099")
         ]
     ]
 
@@ -208,8 +208,8 @@ def _finalize_lr(
     lr_pre: xr.Dataset,
     grid: xr.Dataset,
     static_ds: xr.Dataset,
-    XLAT: xr.DataArray,
-    XLONG: xr.DataArray,
+    xlat: xr.DataArray,
+    xlong: xr.DataArray,
     dim_rename: dict[str, str],
     rename_vars: dict[str, str],
 ) -> xr.Dataset:
@@ -258,20 +258,20 @@ def _finalize_lr(
     )
 
     return xr.Dataset(
-        coords={"time": lr_rg.time, "level": lr_rg.level, "XLAT": XLAT, "XLONG": XLONG},
+        coords={"time": lr_rg.time, "level": lr_rg.level, "XLAT": xlat, "XLONG": xlong},
         data_vars={**lr_rg.data_vars, "orography": orography},
         attrs={"regrid_method": "bilinear"},
     ).drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
 
 
-def _grid_coords_only(XLAT: xr.DataArray, XLONG: xr.DataArray) -> xr.Dataset:
+def _grid_coords_only(xlat: xr.DataArray, xlong: xr.DataArray) -> xr.Dataset:
     """
     Construct a minimal grid-coordinates dataset with
     2D latitude and longitude arrays on (south_north, west_east)
     """
     return xr.Dataset(coords={
-        "XLAT": (("south_north", "west_east"), XLAT.data),
-        "XLONG": (("south_north", "west_east"), XLONG.data),
+        "XLAT": (("south_north", "west_east"), xlat.data),
+        "XLONG": (("south_north", "west_east"), xlong.data),
     })
 
 
@@ -332,13 +332,13 @@ def get_train_datasets(
         (south_north, west_east), suitable for downstream reuse.
     """
     static_ds = get_static_dataset(exp_domain, train_config)
-    grid, XLAT, XLONG, dim_rename = _align_static_grid(static_ds)
+    grid, xlat, xlong, dim_rename = _align_static_grid(static_ds)
     target_path, predictor_path = get_train_paths(exp_domain, train_config)
 
     hr_out = (
         _load_train_ds(target_path).drop_attrs()
         .rename({**dim_rename, **CORDEX_HR_CHANNELS})
-        .assign_coords(XLAT=XLAT, XLONG=XLONG)
+        .assign_coords(XLAT=xlat, XLONG=xlong)
         .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
         [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]
         .transpose("time", "south_north", "west_east")
@@ -347,10 +347,10 @@ def get_train_datasets(
     print(f"\nCordex HR [train] =>\n {hr_out}")
 
     lr_pre, rename_vars = _stack_levels(_load_train_ds(predictor_path))
-    lr_out = _finalize_lr(lr_pre, grid, static_ds, XLAT, XLONG, dim_rename, rename_vars)
+    lr_out = _finalize_lr(lr_pre, grid, static_ds, xlat, xlong, dim_rename, rename_vars)
     print(f"\nCordex LR [train] =>\n {lr_out}")
 
-    return hr_out, lr_pre, lr_out, _grid_coords_only(XLAT, XLONG)
+    return hr_out, lr_pre, lr_out, _grid_coords_only(xlat, xlong)
 
 
 def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perfect: bool
@@ -392,7 +392,7 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
         (south_north, west_east), suitable for downstream reuse.
     """
     static_ds = get_static_dataset(exp_domain, train_config)
-    grid, XLAT, XLONG, dim_rename = _align_static_grid(static_ds)
+    grid, xlat, xlong, dim_rename = _align_static_grid(static_ds)
 
     pred = xr.open_mfdataset(
         get_test_paths(exp_domain, test_config, perfect),
@@ -403,7 +403,7 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
         pred = pred.sel(time=slice("1981-01-01", "1981-01-31"))
 
     lr_pre, rename_vars = _stack_levels(pred)
-    lr_out = _finalize_lr(lr_pre, grid, static_ds, XLAT, XLONG, dim_rename, rename_vars)
+    lr_out = _finalize_lr(lr_pre, grid, static_ds, xlat, xlong, dim_rename, rename_vars)
 
     # Fake HR using LR's `time` coord
     hr_fake = _fake_hr_from_lr(lr_out)
@@ -411,4 +411,4 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     print(f"\nCordex HR empty [test] =>\n {hr_fake}")
     print(f"\nCordex LR [test] =>\n {lr_out}")
 
-    return hr_fake, lr_pre, lr_out, _grid_coords_only(XLAT, XLONG)
+    return hr_fake, lr_pre, lr_out, _grid_coords_only(xlat, xlong)

@@ -5,9 +5,9 @@ Builds consolidated CorrDiff-ready datasets from CORDEX HR/LR sources (train + t
 optionally dumps intermediate regrid NetCDFs for debugging, verifies schema, and
 writes the final result to Zarr.
 """
+from itertools import product
 import numpy as np
 import xarray as xr
-from itertools import product
 
 from corrdiff_datagen import verify_dataset, write_to_zarr, dump_regrid_netcdf
 from data_builder import \
@@ -18,6 +18,37 @@ XTIME = np.datetime64("2026-01-09 17:00:00", "ns")  # placeholder timestamp
 
 
 def build_out(hr_outputs, lr_outputs, grid_coords, tag: str) -> xr.Dataset:
+    """
+    Assemble the final CorrDiff output dataset from HR and LR components.
+
+    This function combines preprocessed high-resolution (HR) and low-resolution (LR)
+    outputs into a single xarray.Dataset that conforms to the CorrDiff training
+    and evaluation schema. It merges normalized data variables, attaches shared
+    grid coordinates, and drops intermediate dimensions not required by the
+    CorrDiff model.
+
+    Parameters
+    ----------
+    hr_outputs : tuple
+        Tuple of HR outputs in CorrDiff order, containing:
+        (fields, variable metadata, normalization center, normalization scale,
+         validity mask, pre-regrid dataset, post-regrid dataset).
+    lr_outputs : tuple
+        Tuple of LR outputs in CorrDiff order, containing:
+        (fields, normalization center, normalization scale, validity mask,
+         pre-regrid dataset, post-regrid dataset).
+    grid_coords : xr.Dataset
+        Dataset containing grid coordinate arrays (e.g., XLAT, XLONG) defining
+        the spatial domain.
+    tag : str
+        Identifier used for optional debugging output (e.g., NetCDF dumps).
+
+    Returns
+    -------
+    xr.Dataset
+        Consolidated CorrDiff dataset containing HR and LR variables, coordinates,
+        and metadata, ready for validation and serialization.
+    """
     hr_keys = ["cwb", "cwb_variable", "cwb_center", "cwb_scale", "cwb_valid",
                "pre_regrid", "post_regrid"]
     lr_keys = ["era5", "era5_center", "era5_scale", "era5_valid",
@@ -93,7 +124,7 @@ def main():
                            tag=f"{exp_domain}_{train_config[:3]}")
             write_corrdiff_zarr(ds, f"cordex_train_{exp_domain}_{train_config[:3]}.zarr")
 
-        # test (TG / OOSG) x (perfect / imperfect)        
+        # test (TG / OOSG) x (perfect / imperfect)
         for test_config, perfect in product(gcm_sets, [False, True]):
             perfect_suffix = "perfect" if perfect else "imperfect"
 
