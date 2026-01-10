@@ -342,7 +342,7 @@ def get_train_datasets(
         .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
         [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]
         .transpose("time", "south_north", "west_east")
-        .chunk(time=1)
+        .chunk({"time": 1, "south_north": -1, "west_east": -1})
     )
     print(f"\nCordex HR [train] =>\n {hr_out}")
 
