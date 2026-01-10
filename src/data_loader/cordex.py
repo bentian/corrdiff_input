@@ -51,6 +51,7 @@ DEBUG = False  # Set to True to enable debugging
 
 GCM_SET: Dict[str, Dict[str, str]] = {
     "ALPS": {"TG": "CNRM-CM5", "OOSG": "MPI-ESM-LR"},
+    "SA": {"TG": "ACCESS-CM2", "OOSG": "NorESM2-MM"},
     "NZ": {"TG": "ACCESS-CM2", "OOSG": "EC-Earth3"},
 }
 DIM_YX_RENAME = {"y": "south_north", "x": "west_east"}

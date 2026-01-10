@@ -13,7 +13,7 @@ from corrdiff_datagen import verify_dataset, write_to_zarr, dump_regrid_netcdf
 from data_builder import \
     GRID_COORD_KEYS, generate_cordex_train_outputs, generate_cordex_test_outputs
 
-DEBUG = False
+DEBUG = False                                       # Set to True to enable debugging
 XTIME = np.datetime64("2026-01-09 17:00:00", "ns")  # placeholder timestamp
 
 
@@ -113,7 +113,7 @@ def main():
     This function serves as the main entry point for batch generation of
     CORDEX-based CorrDiff datasets.
     """
-    domains = ["ALPS", "NZ"]
+    domains = ["ALPS", "NZ", "SA"]
     train_configs = ["ESD_pseudo_reality", "Emulator_hist_future"]
     gcm_sets = ["TG", "OOSG"]
 
