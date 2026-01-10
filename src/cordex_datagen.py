@@ -93,14 +93,12 @@ def main():
                            tag=f"{exp_domain}_{train_config[:3]}")
             write_corrdiff_zarr(ds, f"cordex_train_{exp_domain}_{train_config[:3]}.zarr")
 
-        train_config_orog = train_configs[0] # orography for test datasets
-
         # test (TG / OOSG) x (perfect / imperfect)        
         for test_config, perfect in product(gcm_sets, [False, True]):
             perfect_suffix = "perfect" if perfect else "imperfect"
 
             ds = build_out(
-                *generate_cordex_test_outputs(exp_domain, train_config_orog, test_config, perfect),
+                *generate_cordex_test_outputs(exp_domain, train_configs[0], test_config, perfect),
                 tag=f"{exp_domain}_{test_config}_{perfect_suffix}"
             )
             write_corrdiff_zarr(

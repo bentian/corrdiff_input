@@ -344,9 +344,11 @@ def get_train_datasets(
         .transpose("time", "south_north", "west_east")
         .chunk(time=1)
     )
+    print(f"\nCordex HR [train] =>\n {hr_out}")
 
     lr_pre, rename_vars = _stack_levels(_load_train_ds(predictor_path))
     lr_out = _finalize_lr(lr_pre, grid, static_ds, XLAT, XLONG, dim_rename, rename_vars)
+    print(f"\nCordex LR [train] =>\n {lr_out}")
 
     return hr_out, lr_pre, lr_out, _grid_coords_only(XLAT, XLONG)
 
@@ -403,4 +405,10 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     lr_pre, rename_vars = _stack_levels(pred)
     lr_out = _finalize_lr(lr_pre, grid, static_ds, XLAT, XLONG, dim_rename, rename_vars)
 
-    return _fake_hr_from_lr(lr_out), lr_pre, lr_out, _grid_coords_only(XLAT, XLONG)
+    # Fake HR using LR's `time` coord
+    hr_fake = _fake_hr_from_lr(lr_out)
+
+    print(f"\nCordex HR empty [test] =>\n {hr_fake}")
+    print(f"\nCordex LR [test] =>\n {lr_out}")
+
+    return hr_fake, lr_pre, lr_out, _grid_coords_only(XLAT, XLONG)
