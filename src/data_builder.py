@@ -1,49 +1,46 @@
 """
-CorrDiff reference-grid utilities for constructing high-resolution (TReAD / TaiESM 3.5 km)
-and low-resolution (ERA5 / TaiESM 100 km) datasets on a unified WRF-style domain.
+CorrDiff reference-grid utilities and dataset assembly pipelines.
 
-This module centralizes the logic required to align multi-source atmospheric
-datasets—CWA TReAD, ERA5, TaiESM 3.5 km, and TaiESM 100 km—onto a common
-208x208 reference grid used by CorrDiff for training and inference.
+This module centralizes the logic needed to build “CorrDiff-ready” training and
+inference inputs across multiple climate data sources on a unified WRF-style grid.
+It supports:
 
-Main capabilities
+- CWA workflow: high-resolution TReAD + low-resolution ERA5
+- SSP workflow: high-resolution TaiESM 3.5 km + low-resolution TaiESM 100 km
+- CORDEX workflow: high-resolution CORDEX targets + low-resolution CORDEX predictors (train/test)
+
+All pipelines return standardized output tuples produced by:
+- `get_cwb_fields()` for HR-like sources (TReAD, TaiESM 3.5 km, CORDEX HR)
+- `get_era5_fields()` for LR-like sources (ERA5, TaiESM 100 km, CORDEX LR)
+
+Each tuple includes:
+- normalized tensors and metadata (center/scale/valid masks)
+- the raw pre-regrid dataset
+- the final post-regrid (aligned) dataset
+
+Reference grids
+---------------
+The module loads one of two 208x208 WRF-style reference grids:
+
+- CWA reference grid (used for TReAD/ERA5): includes optional terrain fields
+  (TER, SLOPE, ASPECT) for downstream preprocessing.
+- SSP reference grid (used for TaiESM SSP scenarios): terrain fields are omitted.
+
+Both expose:
+- 2D latitude/longitude as `XLAT` / `XLONG`
+- `grid_coords` containing only the grid-coordinate keys used by CorrDiff:
+  `GRID_COORD_KEYS = ["XLAT", "XLONG"]`
+
+Output convention
 -----------------
-1. Reference grid loading
-   - `get_ref_grid()` loads either the CWA reference grid or the SSP reference
-     grid, exposing:
-       * 2-D `lat`/`lon` fields,
-       * projection and auxiliary coordinate variables,
-       * optional terrain fields (TER, SLOPE, ASPECT).
+All returned aligned datasets follow CorrDiff's WRF-style spatial convention:
 
-2. Dataset generation pipelines
-   - `generate_cwa_outputs()` builds TReAD + ERA5 datasets on the
-     reference grid over a given date range.
-   - `generate_ssp_outputs()` builds TaiESM 3.5 km + TaiESM 100 km datasets
-     for a selected Shared Socioeconomic Pathway (SSP).
+    (time, south_north, west_east)              for HR / surface fields
+    (time, level, south_north, west_east)       for LR pressure-level fields
 
-3. Field-assembly helpers
-   - All outputs are converted into standardized “CorrDiff-ready” tensors via:
-       * `get_cwb_fields()` for high-resolution TReAD / TaiESM 3.5 km fields.
-       * `get_era5_fields()` for low-resolution ERA5 / TaiESM 100 km fields.
-   - Each helper returns:
-       * normalized / centered fields,
-       * scale factors,
-       * validity masks,
-       * the raw pre-regrid dataset and the final aligned dataset.
-
-Output format
--------------
-All generated datasets follow CorrDiff conventions:
-
-    (channel, time, south_north, west_east)
-
-and are backed by Dask arrays to support scalable I/O and training workloads.
-
-This module serves as the top-level orchestration layer that connects:
-reference-grid metadata → dataset loaders → channel construction →
-CorrDiff-ready tensors.
-
+Large arrays remain Dask-backed to support scalable I/O and training workloads.
 """
+
 from typing import Tuple
 import xarray as xr
 

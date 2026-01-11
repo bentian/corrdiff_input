@@ -39,7 +39,7 @@ serialization code (e.g., CorrDiff Zarr generators), rather than directly
 by model training code.
 """
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union, Iterable
 
 import xarray as xr
 import dask.array as da
@@ -94,24 +94,24 @@ def get_lr_channels() -> dict:
 # Directory / File paths
 # -------------------------------------------------------------------
 
-def data_root() -> Path:
+def _data_root() -> Path:
     """Root directory for CORDEX train/test data."""
     return Path("../data/cordex" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX")
 
 
 def train_dir(exp_domain: str, train_config: str) -> Path:
     """Train directory for a given domain/config."""
-    return data_root() / f"{exp_domain}_domain" / "train" / train_config
+    return _data_root() / f"{exp_domain}_domain" / "train" / train_config
 
 
-def get_static_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
+def _get_static_dataset(exp_domain: str, train_config: str) -> xr.Dataset:
     """Get static fields dataset (lat/lon/orog grid)."""
     return xr.open_mfdataset(
         train_dir(exp_domain, train_config) / "predictors" / "Static_fields.nc"
     )
 
 
-def get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
+def _get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
     """Get HR target + LR predictors paths for training."""
     base = train_dir(exp_domain, train_config)
     suffix = "_2080-2099" if train_config == "Emulator_hist_future" else ""
@@ -123,9 +123,9 @@ def get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
     ]
 
 
-def get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Path]:
+def _get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Path]:
     """Get LR predictors paths for test periods (historical/mid/end century)."""
-    base = Path(data_root()) / f"{exp_domain}_domain" / "test"
+    base = Path(_data_root()) / f"{exp_domain}_domain" / "test"
     prefix = GCM_SET[exp_domain][test_config]
 
     return [
@@ -140,10 +140,42 @@ def get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Pat
 # Helpers to create HR / LR datasets
 # -------------------------------------------------------------------
 
-def _load_train_ds(path: Path) -> xr.Dataset:
-    """Load a NetCDF dataset and normalize its time coordinate to daily resolution."""
-    ds = xr.open_mfdataset(path).assign_coords(time=lambda d: d.time.dt.floor("D"))
-    return ds.sel(time=slice("1961-01-01", "1961-01-31")) if DEBUG else ds
+def _load_ds(
+    paths: Union[Path, str, Iterable[Union[Path, str]]],
+    **open_kwargs,
+) -> xr.Dataset:
+    """
+    Load one or more NetCDF files with xarray, normalize time to daily resolution,
+    and optionally apply a debug time slice.
+
+    Behavior
+    --------
+    - If `paths` is a single path: treat as training-style data and slice
+      to 1961-01 when DEBUG is True.
+    - If `paths` is an iterable of paths: treat as test-style data and slice
+      to 1981-01 when DEBUG is True.
+
+    Parameters
+    ----------
+    paths
+        A single NetCDF path (train) or an iterable of NetCDF paths (test).
+    open_kwargs
+        Extra keyword arguments forwarded to `xr.open_mfdataset`
+        (e.g., combine="by_coords", compat="no_conflicts").
+
+    Returns
+    -------
+    xr.Dataset
+        Loaded dataset with `time` floored to daily resolution and optionally
+        time-sliced in DEBUG mode.
+    """
+    is_iterable = isinstance(paths, Iterable) and not isinstance(paths, (str, Path))
+    debug_slice = (
+        slice("1981-01-01", "1981-01-31") if is_iterable else slice("1961-01-01", "1961-01-31")
+    )
+
+    ds = xr.open_mfdataset(paths, **open_kwargs).assign_coords(time=lambda d: d.time.dt.floor("D"))
+    return ds.sel(time=debug_slice) if DEBUG else ds
 
 
 def _align_static_grid(
@@ -332,12 +364,12 @@ def get_train_datasets(
         Dataset containing only the 2D grid coordinates (XLAT, XLONG) on
         (south_north, west_east), suitable for downstream reuse.
     """
-    static_ds = get_static_dataset(exp_domain, train_config)
+    static_ds = _get_static_dataset(exp_domain, train_config)
     grid, xlat, xlong, dim_rename = _align_static_grid(static_ds)
-    target_path, predictor_path = get_train_paths(exp_domain, train_config)
+    target_path, predictor_path = _get_train_paths(exp_domain, train_config)
 
     hr_out = (
-        _load_train_ds(target_path).drop_attrs()
+        _load_ds(target_path).drop_attrs()
         .rename({**dim_rename, **CORDEX_HR_CHANNELS})
         .assign_coords(XLAT=xlat, XLONG=xlong)
         .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
@@ -347,7 +379,7 @@ def get_train_datasets(
     )
     print(f"\nCordex HR [train] =>\n {hr_out}")
 
-    lr_pre, rename_vars = _stack_levels(_load_train_ds(predictor_path))
+    lr_pre, rename_vars = _stack_levels(_load_ds(predictor_path))
     lr_out = _finalize_lr(lr_pre, grid, static_ds, xlat, xlong, dim_rename, rename_vars)
     print(f"\nCordex LR [train] =>\n {lr_out}")
 
@@ -392,16 +424,14 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
         Dataset containing only the grid coordinates (`XLAT`, `XLONG`) on
         (south_north, west_east), suitable for downstream reuse.
     """
-    static_ds = get_static_dataset(exp_domain, train_config)
+    static_ds = _get_static_dataset(exp_domain, train_config)
     grid, xlat, xlong, dim_rename = _align_static_grid(static_ds)
 
-    pred = xr.open_mfdataset(
-        get_test_paths(exp_domain, test_config, perfect),
+    pred = _load_ds(
+        _get_test_paths(exp_domain, test_config, perfect),
         combine="by_coords",
         compat="no_conflicts",
-    ).assign_coords(time=lambda d: d.time.dt.floor("D"))
-    if DEBUG:
-        pred = pred.sel(time=slice("1981-01-01", "1981-01-31"))
+    )
 
     lr_pre, rename_vars = _stack_levels(pred)
     lr_out = _finalize_lr(lr_pre, grid, static_ds, xlat, xlong, dim_rename, rename_vars)
