@@ -1,47 +1,43 @@
 """
-CorrDiff dataset generator: build, validate, and export multi-source inputs to Zarr.
+CorrDiff dataset generation and serialization script.
 
-This script orchestrates the end-to-end pipeline for creating CorrDiff-ready
-datasets from high-resolution (TReAD / TaiESM 3.5 km) and low-resolution
-(ERA5 / TaiESM 100 km) sources on a common WRF-style reference grid.
+This module builds, validates, and writes CorrDiff-compatible datasets
+to Zarr format for multiple experiment modes, including:
 
-Main responsibilities
----------------------
-- Drive data loading and preprocessing via `data_builder`:
-    * `generate_cwa_outputs()`  - TReAD + ERA5.
-    * `generate_ssp_outputs()`  - TaiESM 3.5 km + 100 km.
-- Combine high-res and low-res tensors into a single `xarray.Dataset`
-  (`generate_output_dataset`).
-- Optionally dump pre- and post-regrid NetCDF snapshots for debugging
-  (`dump_regrid_netcdf` when `DEBUG` is True).
-- Verify that the final dataset meets CorrDiff geometry and metadata
-  requirements (`verify_dataset`).
-- Write the consolidated dataset to compressed Zarr storage
-  (`write_to_zarr`).
+- CWA / TReAD + ERA5 historical data
+- SSP scenario simulations
+- CORDEX downscaling experiments (train and test configurations)
 
-Usage
------
-Run from the command line:
+The script orchestrates data generation via functions in ``data_builder``,
+assembles high-resolution (HR) and low-resolution (LR) components into a
+unified xarray.Dataset, verifies dataset integrity, and writes the result
+to compressed Zarr stores.
 
-    CWA / TReAD + ERA5 mode:
-        python corrdiff_datagen.py <start_date> <end_date>
+Supported command-line modes
+----------------------------
+CWA mode:
+    python corrdiff_datagen.py <start_date> <end_date>
 
-    SSP / TaiESM mode:
-        python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
+SSP mode:
+    python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
 
-Examples
---------
-    python corrdiff_datagen.py 20180101 20180103
-    python corrdiff_datagen.py 20180101 20180103 ssp126
+CORDEX mode:
+    python corrdiff_datagen.py cordex
 
-The output is a validated CorrDiff-ready Zarr dataset named:
+Key responsibilities
+--------------------
+- Generate HR/LR outputs for different experiment configurations
+- Assemble CorrDiff datasets with consistent dimensions and coordinates
+- Validate datasets against CorrDiff schema requirements
+- Serialize datasets to Zarr with compression
+- Optionally dump intermediate NetCDF files for debugging
 
-    corrdiff_dataset_<start_date>_<end_date>.zarr
-    or
-    <ssp_level>_dataset_<start_date>_<end_date>.zarr
+This script is intended to be run as a standalone entry point in the
+CorrDiff data preparation workflow.
 """
 import sys
 from pathlib import Path
+from itertools import product
 
 import xarray as xr
 import numpy as np
@@ -49,10 +45,14 @@ from numcodecs import Blosc
 from dask.diagnostics import ProgressBar
 
 from data_builder import (
-    GRID_COORD_KEYS, generate_cwa_outputs, generate_ssp_outputs, validate_ssp_level
+    GRID_COORD_KEYS, generate_cwa_outputs,
+    generate_ssp_outputs, validate_ssp_level,
+    generate_cordex_train_outputs, generate_cordex_test_outputs
 )
 
 DEBUG = False  # Set to True to enable debugging
+XTIME = np.datetime64("2026-01-09 17:00:00", "ns")  # placeholder timestamp
+
 
 def dump_regrid_netcdf(
     subdir: str,
@@ -84,69 +84,6 @@ def dump_regrid_netcdf(
         (lr_post_regrid, "lowres_post_regrid.nc")
     ]:
         dataset.to_netcdf(folder / name)
-
-
-def generate_output_dataset(start_date: str, end_date: str, ssp_level: str) -> xr.Dataset:
-    """
-    Generates a consolidated output dataset by processing low-res and high-res data fields.
-
-    Parameters:
-        start_date (str): Start date of the data range in 'YYYYMMDD' format.
-        end_date (str): End date of the data range in 'YYYYMMDD' format.
-        ssp_level (str): SSP level used to select the TaiESM dataset directory
-                            (e.g., 'historical', 'ssp126', 'ssp245').
-
-    Returns:
-        xr.Dataset: A dataset containing consolidated and processed
-                    low-res and high-res data fields.
-    """
-    # Generate high-res and low-res output datasets
-    hr_outputs, lr_outputs, grid_coords = (
-        generate_ssp_outputs(start_date, end_date, ssp_level)
-        if ssp_level else generate_cwa_outputs(start_date, end_date)
-    )
-
-    # Group outputs into dictionaries
-    hr_data = dict(zip(
-        ["cwb", "cwb_variable", "cwb_center", "cwb_scale", "cwb_valid",
-         "pre_regrid", "post_regrid"],
-        hr_outputs,
-    ))
-    lr_data = dict(zip(
-        ["era5", "era5_center", "era5_scale", "era5_valid",
-         "pre_regrid", "post_regrid"],
-        lr_outputs,
-    ))
-
-    # Create the output dataset
-    out = xr.Dataset(
-        data_vars={
-            "cwb":         hr_data["cwb"],
-            "cwb_center":  hr_data["cwb_center"],
-            "cwb_scale":   hr_data["cwb_scale"],
-            "cwb_valid":   hr_data["cwb_valid"],
-            "era5":        lr_data["era5"],
-            "era5_center": lr_data["era5_center"],
-            "era5_valid":  lr_data["era5_valid"],
-        },
-        coords={
-            **{key: grid_coords[key] for key in GRID_COORD_KEYS},
-            "XTIME": np.datetime64("2025-12-10 09:00:00", "ns"),  # Placeholder for timestamp
-            "time": hr_data["cwb"].time,
-            "cwb_variable": hr_data["cwb_variable"],
-            "era5_scale": ("era5_channel", lr_data["era5_scale"].data),
-        },
-    ).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
-
-    # [DEBUG] Dump data pre- & post-regridding, and print output data slices
-    if DEBUG:
-        dump_regrid_netcdf(
-            f"{start_date}_{end_date}",
-            hr_data["pre_regrid"], hr_data["post_regrid"],
-            lr_data["pre_regrid"], lr_data["post_regrid"],
-        )
-
-    return out
 
 
 def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
@@ -199,6 +136,71 @@ def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
     return True, "Dataset verification passed successfully."
 
 
+def build_out(hr_outputs, lr_outputs, grid_coords, tag: str) -> xr.Dataset:
+    """
+    Assemble the final CorrDiff output dataset from HR and LR components.
+
+    This function combines preprocessed high-resolution (HR) and low-resolution (LR)
+    outputs into a single xarray.Dataset that conforms to the CorrDiff training
+    and evaluation schema. It merges normalized data variables, attaches shared
+    grid coordinates, and drops intermediate dimensions not required by the
+    CorrDiff model.
+
+    Parameters
+    ----------
+    hr_outputs : tuple
+        Tuple of HR outputs in CorrDiff order, containing:
+        (fields, variable metadata, normalization center, normalization scale,
+         validity mask, pre-regrid dataset, post-regrid dataset).
+    lr_outputs : tuple
+        Tuple of LR outputs in CorrDiff order, containing:
+        (fields, normalization center, normalization scale, validity mask,
+         pre-regrid dataset, post-regrid dataset).
+    grid_coords : xr.Dataset
+        Dataset containing grid coordinate arrays (e.g., XLAT, XLONG) defining
+        the spatial domain.
+    tag : str
+        Identifier used for optional debugging output (e.g., NetCDF dumps).
+
+    Returns
+    -------
+    xr.Dataset
+        Consolidated CorrDiff dataset containing HR and LR variables, coordinates,
+        and metadata, ready for validation and serialization.
+    """
+    hr_keys = ["cwb", "cwb_variable", "cwb_center", "cwb_scale", "cwb_valid",
+               "pre_regrid", "post_regrid"]
+    lr_keys = ["era5", "era5_center", "era5_scale", "era5_valid",
+               "pre_regrid", "post_regrid"]
+    hr, lr = dict(zip(hr_keys, hr_outputs)), dict(zip(lr_keys, lr_outputs))
+
+    out = (
+        xr.Dataset(
+            data_vars={
+                "cwb": hr["cwb"], "cwb_center": hr["cwb_center"],
+                "cwb_scale": hr["cwb_scale"], "cwb_valid": hr["cwb_valid"],
+
+                "era5": lr["era5"], "era5_center": lr["era5_center"],
+                "era5_valid": lr["era5_valid"],
+            },
+            coords={
+                **{k: grid_coords[k] for k in GRID_COORD_KEYS},
+                "XTIME": XTIME,
+                "time": hr["cwb"].time,
+                "cwb_variable": hr["cwb_variable"],
+                "era5_scale": ("era5_channel", lr["era5_scale"].data),
+            },
+        )
+        .drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
+    )
+
+    if DEBUG:
+        dump_regrid_netcdf(tag, hr["pre_regrid"], hr["post_regrid"],
+                           lr["pre_regrid"], lr["post_regrid"])
+
+    return out
+
+
 def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
     """
     Writes the given dataset to a Zarr storage format with compression.
@@ -220,64 +222,99 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
     print(f"Data successfully saved to [{out_path}]")
 
 
-def generate_corrdiff_zarr(start_date: str, end_date: str, ssp_level: str = '') -> None:
+def create_corrdiff_zarr(prefix: str, tag: str, outputs) -> None:
     """
-    Generates and verifies a consolidated dataset for low-res and high-res data,
-    then writes it to a Zarr file format.
+    Build, validate, and write a CorrDiff dataset to a Zarr store.
 
-    Parameters:
-        start_date (str): Start date of the data range in 'YYYYMMDD' format.
-        end_date (str): End date of the data range in 'YYYYMMDD' format.
-        ssp_level (str, optional): SSP level used to select the TaiESM dataset directory
-                                    (e.g., 'historical', 'ssp126', 'ssp245').
+    This function:
+      1) Builds an output dataset using ``build_out``
+      2) Prints a summary of the dataset
+      3) Verifies dataset integrity using ``verify_dataset``
+      4) Writes the dataset to a Zarr directory if verification succeeds
 
-    Returns:
-        None
+    Parameters
+    ----------
+    prefix : str
+        Filename prefix for the output Zarr store (e.g. ``"corrdiff_dataset"``).
+    tag : str
+        Tag identifying the dataset configuration (used in dataset metadata
+        and output filename).
+    outputs :
+        Tuple of outputs returned by a generator function
+        (e.g. ``generate_cwa_outputs`` or ``generate_cordex_train_outputs``).
+
+    Returns
+    -------
+    None
+        The dataset is written to disk as ``<prefix>_<tag>.zarr``.
     """
-    # Generate the output dataset.
-    out = generate_output_dataset(start_date, end_date, ssp_level)
-    print(f"\nZARR dataset =>\n {out}")
+    ds = build_out(*outputs, tag=tag)
+    print(f"\nZARR dataset =>\n{ds}")
 
-    # Verify the output dataset.
-    passed, message = verify_dataset(out)
-    if not passed:
-        print(f"\nDataset verification failed => {message}")
+    ok, msg = verify_dataset(ds)
+    if not ok:
+        print(f"\nDataset verification failed => {msg}")
         return
 
-    # Write the output dataset to ZARR.
-    suffix = f"_{ssp_level}" if ssp_level else ""
-    write_to_zarr(f"corrdiff_dataset_{start_date}_{end_date}{suffix}.zarr", out)
+    write_to_zarr(f"{prefix}_{tag}.zarr", ds)
 
 
 def main():
     """
-    Main entry point for the script. Parses command-line arguments to generate
-    a Zarr dataset for a specified date range.
+    Command-line entry point for CorrDiff dataset generation.
 
-     Usage
-    -----
-        CWA / TReAD+ERA5 mode:
-            python corrdiff_datagen.py <start_date> <end_date>
+    Supports three modes:
+      - CWA:
+          python corrdiff_datagen.py <start_date> <end_date>
+      - SSP:
+          python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
+      - CORDEX:
+          python corrdiff_datagen.py cordex
 
-        SSP / TaiESM mode:
-            python corrdiff_datagen.py <start_date> <end_date> <ssp_level>
-
-    Examples
-    --------
-        python corrdiff_datagen.py 20180101 20180103
-        python corrdiff_datagen.py 20180101 20180103 ssp126
+    Depending on the mode, this function generates training and/or test
+    datasets, validates them, and writes the results to Zarr stores.
     """
     argc = len(sys.argv)
-    if argc not in (3, 4):
+    if argc not in (2, 3, 4):
         print("Usage:")
         print("  CWA : python corrdiff_datagen.py <start> <end>")
         print("  SSP : python corrdiff_datagen.py <start> <end> <ssp_level>")
+        print("  CORDEX : python corrdiff_datagen.py <domain>")
         sys.exit(1)
 
-    if argc == 3:
-        generate_corrdiff_zarr(sys.argv[1], sys.argv[2])
-    elif argc == 4:
-        generate_corrdiff_zarr(sys.argv[1], sys.argv[2], validate_ssp_level(sys.argv[3]))
+    # CORDEX
+    if sys.argv[1] == "cordex":
+        exp_domains = ["ALPS", "NZ", "SA"]
+        train_cfgs = ["ESD_pseudo_reality", "Emulator_hist_future"]
+        gcm_sets = ["TG", "OOSG"]
+
+        for exp_domain in exp_domains:
+            # train
+            for train_cfg in train_cfgs:
+                create_corrdiff_zarr("cordex_train", f"{exp_domain}_{train_cfg[:3]}",
+                                     generate_cordex_train_outputs(exp_domain, train_cfg))
+
+            # test (TG / OOSG) x (perfect / imperfect)
+            for test_cfg, perfect in product(gcm_sets, [False, True]):
+                suffix = "perfect" if perfect else "imperfect"
+                create_corrdiff_zarr(
+                    "cordex_test", f"{exp_domain}_{test_cfg}_{suffix}",
+                    generate_cordex_test_outputs(exp_domain, train_cfgs[0], test_cfg, perfect)
+                )
+
+        return
+
+    # CWA / SSP
+    start_date = sys.argv[1]
+    end_date = sys.argv[2]
+    ssp_level = validate_ssp_level(sys.argv[3]) if argc == 4 else ''
+
+    if argc == 3:   # CWA
+        create_corrdiff_zarr("corrdiff_dataset", f"{start_date}_{end_date}",
+                             generate_cwa_outputs(start_date, end_date))
+    elif argc == 4: # SSP
+        create_corrdiff_zarr("corrdiff_dataset", f"{start_date}_{end_date}_{ssp_level}",
+                             generate_ssp_outputs(start_date, end_date, ssp_level))
 
 
 if __name__ == "__main__":
