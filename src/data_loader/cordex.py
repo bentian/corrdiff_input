@@ -237,44 +237,50 @@ def _stack_levels(ds: xr.Dataset) -> tuple[xr.Dataset, dict[str, str]]:
     return lr_pre, rename_vars
 
 
-def _finalize_lr(
-    lr_pre: xr.Dataset,
-    grid: xr.Dataset,
+def _prepare_lr_outputs(
+    lr_ds: xr.Dataset,
     static_ds: xr.Dataset,
-    xlat: xr.DataArray,
-    xlong: xr.DataArray,
-    dim_rename: dict[str, str],
-    rename_vars: dict[str, str],
+    grid: xr.Dataset,
+    grid_coords: xr.Dataset,
+    dim_rename: Dict[str, str],
 ) -> xr.Dataset:
     """
-    Regrid, standardize, and finalize a low-resolution (LR) dataset.
+    Prepare low-resolution (LR) predictors for CorrDiff by stacking, regridding, and finalizing.
 
-    This function regrids the stacked LR predictors to the static target grid,
-    standardizes dimension and variable names, attaches static orography, and
-    adds 2D grid coordinates (XLAT, XLONG).
+    This function:
+      1) Stacks LR variables into a multi-level predictor dataset via ``_stack_levels``
+         (returning the pre-regrid LR dataset and a rename mapping),
+      2) Regrids the stacked LR predictors onto the target ``grid``,
+      3) Standardizes spatial dimension names using ``dim_rename`` and variable names using
+         the mapping returned by ``_stack_levels``,
+      4) Attaches static orography (``static_ds["orog"]``) aligned to LR time,
+      5) Adds 2D grid coordinates (XLAT/XLONG) from ``grid_coords``.
 
     Parameters
     ----------
-    lr_pre : xr.Dataset
-        LR dataset stacked by pressure level, before regridding.
-    grid : xr.Dataset
-        Target grid dataset containing `lat` and `lon` for xESMF regridding.
+    lr_ds : xr.Dataset
+        Raw LR dataset loaded from file(s) before stacking/regridding.
     static_ds : xr.Dataset
-        Static fields dataset containing orography.
-    XLAT, XLONG : xr.DataArray
-        2D latitude and longitude arrays on (south_north, west_east).
-    dim_rename : dict[str, str]
-        Mapping from source spatial dimensions to
-        ("south_north", "west_east").
-    rename_vars : dict[str, str]
-        Mapping from short variable names to standardized CorrDiff names.
+        Static fields dataset containing ``orog``.
+    grid : xr.Dataset
+        Target grid definition passed to the regridder.
+    grid_coords : xr.Dataset
+        Dataset containing 2D grid coordinates (XLAT, XLONG) on
+        (south_north, west_east).
+    dim_rename : Dict[str, str]
+        Mapping from source spatial dimensions to standardized CorrDiff spatial
+        dimensions (``"south_north"``, ``"west_east"``).
 
     Returns
     -------
-    xr.Dataset
-        Final LR dataset on the CorrDiff grid with standardized variables,
-        dimensions, orography, and grid coordinates.
+    tuple[xr.Dataset, xr.Dataset]
+        (lr_pre, lr_out) where:
+          - lr_pre: stacked LR predictors before regridding (useful for debugging/QA)
+          - lr_out: finalized LR dataset on the CorrDiff grid, including orography and
+            grid coordinates, ready for downstream assembly.
     """
+    lr_pre, rename_vars = _stack_levels(lr_ds)
+
     lr_rg = (
         regrid_dataset(lr_pre, grid)
         .rename({**dim_rename, **rename_vars})
@@ -282,7 +288,7 @@ def _finalize_lr(
         .chunk(time=1, level=1)
     )
 
-    orography = (
+    lr_rg["orography"] = (
         static_ds["orog"]
         .rename(dim_rename).astype("float32")
         .expand_dims(time=lr_rg.time)
@@ -290,11 +296,13 @@ def _finalize_lr(
         .chunk(time=1)
     )
 
-    return xr.Dataset(
-        coords={"time": lr_rg.time, "level": lr_rg.level, "XLAT": xlat, "XLONG": xlong},
-        data_vars={**lr_rg.data_vars, "orography": orography},
-        attrs={"regrid_method": "bilinear"},
-    ).drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+    lr_out = (
+        lr_rg.assign_coords(grid_coords.coords)
+             .assign_attrs(regrid_method="bilinear")
+             .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+    )
+
+    return lr_pre, lr_out
 
 
 def _grid_coords_only(xlat: xr.DataArray, xlong: xr.DataArray) -> xr.Dataset:
@@ -368,6 +376,7 @@ def get_train_datasets(
     grid, xlat, xlong, dim_rename = _align_static_grid(static_ds)
     target_path, predictor_path = _get_train_paths(exp_domain, train_config)
 
+    # HR
     hr_out = (
         _load_ds(target_path).drop_attrs()
         .rename({**dim_rename, **CORDEX_HR_CHANNELS})
@@ -379,11 +388,13 @@ def get_train_datasets(
     )
     print(f"\nCordex HR [train] =>\n {hr_out}")
 
-    lr_pre, rename_vars = _stack_levels(_load_ds(predictor_path))
-    lr_out = _finalize_lr(lr_pre, grid, static_ds, xlat, xlong, dim_rename, rename_vars)
+    # LR
+    grid_coords = _grid_coords_only(xlat, xlong)
+    lr_pre, lr_out = _prepare_lr_outputs(_load_ds(predictor_path), static_ds,
+                                         grid, grid_coords, dim_rename)
     print(f"\nCordex LR [train] =>\n {lr_out}")
 
-    return hr_out, lr_pre, lr_out, _grid_coords_only(xlat, xlong)
+    return hr_out, lr_pre, lr_out, grid_coords
 
 
 def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perfect: bool
@@ -427,14 +438,13 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     static_ds = _get_static_dataset(exp_domain, train_config)
     grid, xlat, xlong, dim_rename = _align_static_grid(static_ds)
 
-    pred = _load_ds(
-        _get_test_paths(exp_domain, test_config, perfect),
-        combine="by_coords",
-        compat="no_conflicts",
+    # LR
+    grid_coords = _grid_coords_only(xlat, xlong)
+    lr_pre, lr_out = _prepare_lr_outputs(
+        _load_ds(_get_test_paths(exp_domain, test_config, perfect),
+                 combine="by_coords", compat="no_conflicts"),
+        static_ds, grid, grid_coords, dim_rename
     )
-
-    lr_pre, rename_vars = _stack_levels(pred)
-    lr_out = _finalize_lr(lr_pre, grid, static_ds, xlat, xlong, dim_rename, rename_vars)
 
     # Fake HR using LR's `time` coord
     hr_fake = _fake_hr_from_lr(lr_out)
@@ -442,4 +452,4 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     print(f"\nCordex HR empty [test] =>\n {hr_fake}")
     print(f"\nCordex LR [test] =>\n {lr_out}")
 
-    return hr_fake, lr_pre, lr_out, _grid_coords_only(xlat, xlong)
+    return hr_fake, lr_pre, lr_out, grid_coords
