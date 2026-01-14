@@ -9,6 +9,7 @@ data/era5/
 data/taiesm100/
 data/taiesm3p5/
 data/tread/
+data/cordex/
 
 # Ignore archived files and generated NetCDF / zarr folders
 archive/
