@@ -1,49 +1,46 @@
 """
-CorrDiff reference-grid utilities for constructing high-resolution (TReAD / TaiESM 3.5 km)
-and low-resolution (ERA5 / TaiESM 100 km) datasets on a unified WRF-style domain.
+CorrDiff reference-grid utilities and dataset assembly pipelines.
 
-This module centralizes the logic required to align multi-source atmospheric
-datasets—CWA TReAD, ERA5, TaiESM 3.5 km, and TaiESM 100 km—onto a common
-208x208 reference grid used by CorrDiff for training and inference.
+This module centralizes the logic needed to build “CorrDiff-ready” training and
+inference inputs across multiple climate data sources on a unified WRF-style grid.
+It supports:
 
-Main capabilities
+- CWA workflow: high-resolution TReAD + low-resolution ERA5
+- SSP workflow: high-resolution TaiESM 3.5 km + low-resolution TaiESM 100 km
+- CORDEX workflow: high-resolution CORDEX targets + low-resolution CORDEX predictors (train/test)
+
+All pipelines return standardized output tuples produced by:
+- `get_cwb_fields()` for HR-like sources (TReAD, TaiESM 3.5 km, CORDEX HR)
+- `get_era5_fields()` for LR-like sources (ERA5, TaiESM 100 km, CORDEX LR)
+
+Each tuple includes:
+- normalized tensors and metadata (center/scale/valid masks)
+- the raw pre-regrid dataset
+- the final post-regrid (aligned) dataset
+
+Reference grids
+---------------
+The module loads one of two 208x208 WRF-style reference grids:
+
+- CWA reference grid (used for TReAD/ERA5): includes optional terrain fields
+  (TER, SLOPE, ASPECT) for downstream preprocessing.
+- SSP reference grid (used for TaiESM SSP scenarios): terrain fields are omitted.
+
+Both expose:
+- 2D latitude/longitude as `XLAT` / `XLONG`
+- `grid_coords` containing only the grid-coordinate keys used by CorrDiff:
+  `GRID_COORD_KEYS = ["XLAT", "XLONG"]`
+
+Output convention
 -----------------
-1. Reference grid loading
-   - `get_ref_grid()` loads either the CWA reference grid or the SSP reference
-     grid, exposing:
-       * 2-D `lat`/`lon` fields,
-       * projection and auxiliary coordinate variables,
-       * optional terrain fields (TER, SLOPE, ASPECT).
+All returned aligned datasets follow CorrDiff's WRF-style spatial convention:
 
-2. Dataset generation pipelines
-   - `generate_cwa_outputs()` builds TReAD + ERA5 datasets on the
-     reference grid over a given date range.
-   - `generate_ssp_outputs()` builds TaiESM 3.5 km + TaiESM 100 km datasets
-     for a selected Shared Socioeconomic Pathway (SSP).
+    (time, south_north, west_east)              for HR / surface fields
+    (time, level, south_north, west_east)       for LR pressure-level fields
 
-3. Field-assembly helpers
-   - All outputs are converted into standardized “CorrDiff-ready” tensors via:
-       * `get_cwb_fields()` for high-resolution TReAD / TaiESM 3.5 km fields.
-       * `get_era5_fields()` for low-resolution ERA5 / TaiESM 100 km fields.
-   - Each helper returns:
-       * normalized / centered fields,
-       * scale factors,
-       * validity masks,
-       * the raw pre-regrid dataset and the final aligned dataset.
-
-Output format
--------------
-All generated datasets follow CorrDiff conventions:
-
-    (channel, time, south_north, west_east)
-
-and are backed by Dask arrays to support scalable I/O and training workloads.
-
-This module serves as the top-level orchestration layer that connects:
-reference-grid metadata → dataset loaders → channel construction →
-CorrDiff-ready tensors.
-
+Large arrays remain Dask-backed to support scalable I/O and training workloads.
 """
+
 from typing import Tuple
 import xarray as xr
 
@@ -51,7 +48,9 @@ from data_loader import (
     get_tread_dataset, get_tread_channels,
     get_era5_dataset, get_era5_channels,
     get_taiesm3p5_dataset, get_taiesm3p5_channels,
-    get_taiesm100_dataset, get_taiesm100_channels
+    get_taiesm100_dataset, get_taiesm100_channels,
+    get_cordex_train_datasets, get_cordex_test_datasets,
+    get_cordex_hr_channels, get_cordex_lr_channels,
 )
 from tensor_fields import get_cwb_fields, get_era5_fields
 
@@ -123,11 +122,13 @@ def get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
 
     return grid, grid_coords, terrain
 
+
 # -------------------------------------------------------------------
 # TReAD & ERA5 outputs
 # -------------------------------------------------------------------
 
-def generate_cwa_outputs(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr.Dataset]:
+def generate_cwa_outputs(start_date: str, end_date: str
+                         ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Generates output datasets for TReAD and ERA5 based on a specified date range
     and a common reference grid.
@@ -178,7 +179,7 @@ def generate_cwa_outputs(start_date: str, end_date: str) -> Tuple[xr.Dataset, xr
 # -------------------------------------------------------------------
 
 def generate_ssp_outputs(start_date: str, end_date: str, ssp_level: str
-                         ) -> Tuple[xr.Dataset, xr.Dataset]:
+                         ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Generates output datasets for TaiESM 3.5km and TaiESM 100km data under a
     specified Shared Socioeconomic Pathway (SSP) level and date range.
@@ -237,3 +238,71 @@ def validate_ssp_level(raw: str) -> str:
         raise ValueError(f"ssp_level must be one of {allowed_ssp_levels}")
 
     return raw
+
+
+# -------------------------------------------------------------------
+# Cordex outputs
+# -------------------------------------------------------------------
+
+def _assemble_cordex_outputs(
+    hr_out: xr.Dataset,
+    lr_pre: xr.Dataset,
+    lr_out: xr.Dataset,
+    grid_coords,
+) -> Tuple[tuple, tuple, xr.Dataset]:
+    """
+    Assemble CorrDiff-ready HR and LR output tuples.
+
+    This helper constructs the standardized output tuples expected by the
+    CorrDiff pipeline by:
+    - extracting and normalizing HR (CWB-style) fields from `hr_out`
+    - extracting and normalizing LR (ERA5-style) fields from `lr_out`
+    - appending pre- and post-regrid datasets in the expected order
+
+    Parameters
+    ----------
+    hr_out : xr.Dataset
+        Final high-resolution dataset on the CorrDiff grid.
+    lr_pre : xr.Dataset
+        Low-resolution dataset before regridding (stacked by level).
+    lr_out : xr.Dataset
+        Low-resolution dataset after regridding to the CorrDiff grid.
+    grid_coords : xr.Dataset or dict
+        Dataset or mapping containing grid coordinate arrays (e.g., XLAT, XLONG).
+
+    Returns
+    -------
+    hr_outputs : tuple
+        Tuple of HR outputs in CorrDiff order:
+        (fields, variable metadata, center, scale, valid mask, pre_regrid, post_regrid).
+    lr_outputs : tuple
+        Tuple of LR outputs in CorrDiff order:
+        (fields, metadata, center, scale, valid mask, pre_regrid, post_regrid).
+    grid_coords : xr.Dataset or dict
+        The unchanged grid coordinate container, forwarded for downstream use.
+    """
+    hr_outputs = (*get_cwb_fields(hr_out, get_cordex_hr_channels()), hr_out, hr_out)
+    lr_outputs = (*get_era5_fields(lr_out, get_cordex_lr_channels()), lr_pre, lr_out)
+    return hr_outputs, lr_outputs, grid_coords
+
+
+def generate_cordex_train_outputs(
+    exp_domain: str,
+    train_config: str
+) -> Tuple[tuple, tuple, xr.Dataset]:
+    """Generate CorrDiff training outputs from CORDEX datasets."""
+    return _assemble_cordex_outputs(
+        *get_cordex_train_datasets(exp_domain, train_config)
+    )
+
+
+def generate_cordex_test_outputs(
+    exp_domain: str,
+    train_config: str,
+    test_config: str,
+    perfect: bool
+) -> Tuple[tuple, tuple, xr.Dataset]:
+    """Generate CorrDiff test outputs from CORDEX datasets."""
+    return _assemble_cordex_outputs(
+        *get_cordex_test_datasets(exp_domain, train_config, test_config, perfect)
+    )
