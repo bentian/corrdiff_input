@@ -96,6 +96,37 @@ nc_dump/<start_date>_<end_date>/
    lowres_post_regrid.nc
 ```
 
+### CORDEX Dataset Generation
+
+Run the following command to generate all CORDEX CorrDiff datasets:
+```
+python src/corrdiff_datagen.py cordex
+```
+
+This command produces multiple Zarr datasets with the naming pattern:
+```
+corrdiff_train_<domain>_<train_config>.zarr
+# or
+corrdiff_test_<domain>_<gcm_config>_<perfect_config>.zarr
+```
+
+__Naming Components__
+- `<domain>`: Regional CORDEX domain
+  - ALPS
+  - NZ
+  - SA
+- `<train_config>`: Training configuration used to build the emulator
+  - ESD_pseudo_reality
+  - Emulator_hist_future
+- `<gcm_config>`: GCM configuration used for testing
+  - TG `<TRAINING_GCM>`
+  - OOSG `<OUT_OF_SAMPLE_GCM>`
+- `<perfect_config>`: Indicates whether perfect boundary conditions are used:
+  - perfect
+  - imperfect
+
+Each dataset corresponds to a unique combination of CORDEX domain, training configuration or GCM configuration, and boundary-condition setting.
+
 ## 2️⃣ Generate Multi-Year Datasets (avoid OOM)
 
 For long time ranges (> 8 years):
@@ -224,6 +255,7 @@ python src/helpers/verify_time_coord.py <top_folder>
        ┗ 📜 TaiESM1_ssp126_r1i1p1f1_*_EA_201801_day.nc
      ┗ 📂 PRS/
        ┗ 📜 TaiESM1_ssp126_r1i1p1f1_*_EA_201801_day.nc
+   ┣ 📂 cordex/
    ┗ 📂 extreme_dates/              # Extreme precipitation dates
  ┣ 📂 ref_grid/
    ┣ 📜 generate_wrf_coord.py       # REF grid generation script
@@ -270,6 +302,7 @@ Tensor creation logic:
 - Loads datasets for:
   - TReAD / ERA5
   - TaiESM 3.5 km / 100 km
+  - CORDEX training & testing
 - Provides utilities:
   - Regridding
   - File data format validation
