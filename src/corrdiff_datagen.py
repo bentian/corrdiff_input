@@ -259,6 +259,27 @@ def create_corrdiff_zarr(prefix: str, tag: str, outputs) -> None:
     write_to_zarr(f"{prefix}_{tag}.zarr", ds)
 
 
+def create_cordex_zarrs() -> None:
+    """Create CorrDiff zarr files for CORDEX experiments."""
+    exp_domains = ["ALPS", "NZ", "SA"]
+    train_cfgs = ["ESD_pseudo_reality", "Emulator_hist_future"]
+    gcm_sets = ["TG", "OOSG"]
+
+    for exp_domain in exp_domains:
+        # train
+        for train_cfg in train_cfgs:
+            create_corrdiff_zarr("cordex_train", f"{exp_domain}_{train_cfg[:3]}",
+                                    generate_cordex_train_outputs(exp_domain, train_cfg))
+
+        # test (TG / OOSG) x (perfect / imperfect)
+        for test_cfg, perfect in product(gcm_sets, [False, True]):
+            suffix = "perfect" if perfect else "imperfect"
+            create_corrdiff_zarr(
+                "cordex_test", f"{exp_domain}_{test_cfg}_{suffix}",
+                generate_cordex_test_outputs(exp_domain, train_cfgs[0], test_cfg, perfect)
+            )
+
+
 def main():
     """
     Command-line entry point for CorrDiff dataset generation.
@@ -284,24 +305,7 @@ def main():
 
     # CORDEX
     if sys.argv[1] == "cordex":
-        exp_domains = ["ALPS", "NZ", "SA"]
-        train_cfgs = ["ESD_pseudo_reality", "Emulator_hist_future"]
-        gcm_sets = ["TG", "OOSG"]
-
-        for exp_domain in exp_domains:
-            # train
-            for train_cfg in train_cfgs:
-                create_corrdiff_zarr("cordex_train", f"{exp_domain}_{train_cfg[:3]}",
-                                     generate_cordex_train_outputs(exp_domain, train_cfg))
-
-            # test (TG / OOSG) x (perfect / imperfect)
-            for test_cfg, perfect in product(gcm_sets, [False, True]):
-                suffix = "perfect" if perfect else "imperfect"
-                create_corrdiff_zarr(
-                    "cordex_test", f"{exp_domain}_{test_cfg}_{suffix}",
-                    generate_cordex_test_outputs(exp_domain, train_cfgs[0], test_cfg, perfect)
-                )
-
+        create_cordex_zarrs()
         return
 
     # CWA / SSP
