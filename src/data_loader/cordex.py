@@ -179,7 +179,7 @@ def _load_ds(
 
 
 def _align_static_grid(
-    statid_ds: xr.Dataset
+    static_ds: xr.Dataset
 ) -> Tuple[xr.Dataset, xr.DataArray, xr.DataArray, Dict[str, str]]:
     """
     Align static_fields to a consistent grid interface.
@@ -199,11 +199,11 @@ def _align_static_grid(
     # Choose which dim rename to use:
     # - curvilinear grid (ALPS): lat/lon are 2D on (y,x)
     # - regular grid (NZ): lat/lon are 1D dims (lat,lon)
-    dim_rename = DIM_YX_RENAME if {"y", "x"}.issubset(statid_ds.dims) else DIM_LATLON_RENAME
-    if not set(dim_rename).issubset(statid_ds.dims):
+    dim_rename = DIM_YX_RENAME if {"y", "x"}.issubset(static_ds.dims) else DIM_LATLON_RENAME
+    if not set(dim_rename).issubset(static_ds.dims):
         raise ValueError("static_fields must contain dims (y,x) or (lat,lon)")
 
-    grid = statid_ds[["lat", "lon"]]
+    grid = static_ds[["lat", "lon"]]
 
     # make 2D XLAT/XLONG on (south_north, west_east)
     xlat, xlon = (
