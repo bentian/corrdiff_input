@@ -300,7 +300,7 @@ def main():
         print("Usage:")
         print("  CWA : python corrdiff_datagen.py <start> <end>")
         print("  SSP : python corrdiff_datagen.py <start> <end> <ssp_level>")
-        print("  CORDEX : python corrdiff_datagen.py <domain>")
+        print("  CORDEX : python corrdiff_datagen.py cordex")
         sys.exit(1)
 
     # CORDEX
