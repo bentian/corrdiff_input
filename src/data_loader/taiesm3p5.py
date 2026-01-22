@@ -118,6 +118,9 @@ def get_taiesm3p5_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     ).rename(TAIESM_3P5_CHANNELS)
 
     # Based on REF grid, regrid TaiESM 3.5km data over spatial dimensions for all timestamps.
-    output_ds = regrid_dataset(surface_ds, grid)
+    output_ds = (
+        regrid_dataset(surface_ds, grid)
+        .chunk({"time": 1, "south_north": -1, "west_east": -1}) # chunk to grid size per timestep
+    )
 
     return surface_ds, output_ds
