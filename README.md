@@ -264,6 +264,7 @@ python src/helpers/verify_time_coord.py <top_folder>
    ┣ 📜 TAIESM_tw3.5km_coord2d.nc   # TaiESM 3.5 km grid used to generate REF grid
    ┗ 📜 ssp_208x208_grid_coords.nc  # SSP 208x208 REF grid
  ┣ 📂 src/
+   ┣ 📂 _template/            # Template code to add data loader for new datasets
    ┣ 📂 helpers/              # Zarr utilities & Data validators
    ┣ 📂 data_loader/          # TReAD / ERA5 / TaiESM data loaders
    ┣ 📜 corrdiff_datagen.py   # Zarr generation script
