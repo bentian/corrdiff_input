@@ -435,10 +435,10 @@ if __name__ == "__main__":
 #     temperature_2m          (time, south_north, west_east) float32 5MB dask.array<chunksize=(1, 208, 208), meta=np.ndarray>
 #     eastward_wind_10m       (time, south_north, west_east) float32 5MB dask.array<chunksize=(1, 208, 208), meta=np.ndarray>
 #     northward_wind_10m      (time, south_north, west_east) float32 5MB dask.array<chunksize=(1, 208, 208), meta=np.ndarray>
-#     geopotential_height     (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 12, 208), meta=np.ndarray>
-#     temperature             (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 12, 208), meta=np.ndarray>
-#     eastward_wind           (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 12, 208), meta=np.ndarray>
-#     northward_wind          (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 12, 208), meta=np.ndarray>
+#     geopotential_height     (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 208, 208), meta=np.ndarray>
+#     temperature             (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 208, 208), meta=np.ndarray>
+#     eastward_wind           (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 208, 208), meta=np.ndarray>
+#     northward_wind          (time, level, south_north, west_east) float32 21MB dask.array<chunksize=(1, 1, 208, 208), meta=np.ndarray>
 #     terrain_height          (time, south_north, west_east) float32 5MB dask.array<chunksize=(1, 208, 208), meta=np.ndarray>
 # Attributes:
 #     regrid_method:  bilinear
