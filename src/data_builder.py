@@ -41,18 +41,42 @@ All returned aligned datasets follow CorrDiff's WRF-style spatial convention:
 Large arrays remain Dask-backed to support scalable I/O and training workloads.
 """
 
-from typing import Tuple
+from typing import Callable, Iterable, Tuple
 import xarray as xr
 
 from data_loader import (
+    # CWA
     get_tread_dataset, get_tread_channels,
     get_era5_dataset, get_era5_channels,
+    # SSP
     get_taiesm3p5_dataset, get_taiesm3p5_channels,
     get_taiesm100_dataset, get_taiesm100_channels,
+    # CORDEX
     get_cordex_train_datasets, get_cordex_test_datasets,
     get_cordex_hr_channels, get_cordex_lr_channels,
 )
 from tensor_fields import get_cwb_fields, get_era5_fields
+
+
+# -------------------------------------------------------------------
+# Output packing helpers
+# -------------------------------------------------------------------
+FieldsFn = Callable[[xr.Dataset, Iterable[str]], tuple]
+
+def _pack_outputs(
+    label: str,
+    pre_regrid: xr.Dataset,
+    out: xr.Dataset,
+    fields_fn: FieldsFn,
+    channels: Iterable[str],
+) -> tuple:
+    """
+    Pack datasets into the standard CorrDiff output tuple:
+      (*fields_fn(out, channels), pre_regrid, out)
+    """
+    print(f"\n{label} dataset =>\n {out}")
+    return (*fields_fn(out, channels), pre_regrid, out)
+
 
 # -------------------------------------------------------------------
 # REF grid
@@ -62,7 +86,7 @@ SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 GRID_COORD_KEYS = ["XLAT", "XLONG"]
 
 
-def get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
+def _get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
     """
     Load the reference grid used for spatial alignment of model inputs and outputs.
 
@@ -104,20 +128,17 @@ def get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
       exposes the required pieces for downstream interpolation or expansion.
     - `grid` is intended to be passed to functions such as `expand_to_grid()`.
     """
-    # Choose reference grid file based on whether we are using an SSP scenario
-    ref_grid_path = SSP_REF_GRID if ssp_level else CWA_REF_GRID
-
-    # Open reference grid
-    ref = xr.open_dataset(ref_grid_path , engine='netcdf4')
+    # Open reference grid file based on whether we are using an SSP scenario
+    ref = xr.open_dataset(SSP_REF_GRID if ssp_level else CWA_REF_GRID,
+                          engine='netcdf4')
 
     # Extra grid-related coordinates
     grid = xr.Dataset({ "lat": ref.XLAT, "lon": ref.XLONG })
     grid_coords = { key: ref.coords[key] for key in GRID_COORD_KEYS }
 
     # Terrain fields only for the CWA grid
-    if ssp_level:
-        terrain = {}
-    else:
+    terrain = {}
+    if not ssp_level:
         terrain = { key.lower(): ref[key] for key in ["TER", "SLOPE", "ASPECT"] }
 
     return grid, grid_coords, terrain
@@ -151,27 +172,19 @@ def generate_cwa_outputs(start_date: str, end_date: str
             - grid_coords (xr.Dataset): An xarray Dataset containing the
                                         coordinates of the reference grid.
     """
-    grid, grid_coords, terrain = get_ref_grid()
+    grid, grid_coords, terrain = _get_ref_grid()
 
-    # TReAD
-    tread_pre_regrid, tread_out = get_tread_dataset(grid, start_date, end_date)
-    print(f"\nTReAD dataset =>\n {tread_out}")
-    tread_outputs = (
-        *get_cwb_fields(tread_out, get_tread_channels()),
-        tread_pre_regrid,
-        tread_out
+    hr_outputs = _pack_outputs(
+        "TReAD", *get_tread_dataset(grid, start_date, end_date),
+        get_cwb_fields, get_tread_channels()
     )
 
-    # ERA5
-    era5_pre_regrid, era5_out = get_era5_dataset(grid, terrain, start_date, end_date)
-    print(f"\nERA5 dataset =>\n {era5_out}")
-    era5_outputs = (
-        *get_era5_fields(era5_out, get_era5_channels()),
-        era5_pre_regrid,
-        era5_out
+    lr_outputs = _pack_outputs(
+        "ERA5", *get_era5_dataset(grid, terrain, start_date, end_date),
+        get_era5_fields, get_era5_channels()
     )
 
-    return tread_outputs, era5_outputs, grid_coords
+    return hr_outputs, lr_outputs, grid_coords
 
 
 # -------------------------------------------------------------------
@@ -204,29 +217,19 @@ def generate_ssp_outputs(start_date: str, end_date: str, ssp_level: str
             - grid_coords (xr.Dataset): An xarray Dataset containing the
                                         coordinates of the reference grid.
     """
-    grid, grid_coords, _ = get_ref_grid(ssp_level)
+    grid, grid_coords, _ = _get_ref_grid(ssp_level)
 
-    # TaiESM 3.5km
-    taiesm3p5_pre_regrid, taiesm3p5_out = \
-        get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level)
-    print(f"\nTaiESM_3.5km dataset [{ssp_level}] =>\n {taiesm3p5_out}")
-    taiesm3p5_outputs = (
-        *get_cwb_fields(taiesm3p5_out, get_taiesm3p5_channels()),
-        taiesm3p5_pre_regrid,
-        taiesm3p5_out
+    hr_outputs = _pack_outputs(
+        "TaiESM_3.5km", *get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level),
+        get_cwb_fields, get_taiesm3p5_channels()
     )
 
-    # TaiESM 100km
-    taisem100_pre_regrid, taisem100_out = \
-        get_taiesm100_dataset(grid, start_date, end_date, ssp_level)
-    print(f"\nTaiESM 100km dataset [{ssp_level}] =>\n {taisem100_out}")
-    taiesm100_outputs = (
-        *get_era5_fields(taisem100_out, get_taiesm100_channels()),
-        taisem100_pre_regrid,
-        taisem100_out
+    lr_outputs = _pack_outputs(
+        "TaiESM_100km", *get_taiesm100_dataset(grid, start_date, end_date, ssp_level),
+        get_era5_fields, get_taiesm100_channels()
     )
 
-    return taiesm3p5_outputs, taiesm100_outputs, grid_coords
+    return hr_outputs, lr_outputs, grid_coords
 
 
 def validate_ssp_level(raw: str) -> str:
@@ -274,7 +277,7 @@ def _assemble_cordex_outputs(
     -------
     hr_outputs : tuple
         Tuple of HR outputs in CorrDiff order:
-        (fields, variable metadata, center, scale, valid mask, pre_regrid, post_regrid).
+        (fields, metadata, center, scale, valid mask, pre_regrid, post_regrid).
     lr_outputs : tuple
         Tuple of LR outputs in CorrDiff order:
         (fields, metadata, center, scale, valid mask, pre_regrid, post_regrid).

@@ -304,12 +304,12 @@ def get_era5_dataset(
 
     # Process and merge surface, pressure levels, and orography data
     era5_sfc = get_surface_data(folder, duration)
-    era5_parts = [
-        era5_sfc,
-        get_pressure_level_data(folder, duration),
-        get_era5_orography(folder, era5_sfc.time),
-    ]
-    era5 = xr.merge(era5_parts, compat="no_conflicts").drop_vars("time_bnds", errors="ignore")
+    era5 = xr.merge(
+        [era5_sfc,
+         get_pressure_level_data(folder, duration),
+         get_era5_orography(folder, era5_sfc.time)],
+        compat="no_conflicts"
+    ).drop_vars("time_bnds", errors="ignore")
 
     # Crop to Taiwan domain given ERA5 is global data.
     lat, lon = grid.XLAT, grid.XLONG
@@ -317,8 +317,11 @@ def get_era5_dataset(
         latitude=slice(lat.max().item(), lat.min().item()),
         longitude=slice(lon.min().item(), lon.max().item()))
 
-    # Based on REF grid, regrid TReAD data over spatial dimensions for all timestamps.
-    era5_out = regrid_dataset(era5_crop, grid)
+    # Based on REF grid, regrid ERA5 data over spatial dimensions for all timestamps.
+    sn, we = int(lat.sizes["south_north"]), int(lat.sizes["west_east"])
+    era5_out = regrid_dataset(
+        era5_crop, grid, output_chunks={"time": 1, "south_north": sn, "west_east": we}
+    )
 
     # Update era5_out with TReAD layers
     tread_data = {key: get_tread_data(layer, era5_sfc.time) for key, layer in layers.items()}
