@@ -51,7 +51,7 @@ from data_builder import (
 )
 
 DEBUG = False  # Set to True to enable debugging
-XTIME = np.datetime64("2026-01-09 17:00:00", "ns")  # placeholder timestamp
+XTIME = np.datetime64("2026-02-09 17:00:00", "ns")  # placeholder timestamp
 
 
 def dump_regrid_netcdf(

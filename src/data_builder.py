@@ -121,12 +121,6 @@ def _get_ref_grid(ssp_level: str = '') -> Tuple[xr.Dataset, dict, dict]:
         - otherwise contains:
             { "ter": TER, "slope": SLOPE, "aspect": ASPECT }
         where each value is an xarray DataArray.
-
-    Notes
-    -----
-    - This function does not modify or preprocess the grid; it merely loads and
-      exposes the required pieces for downstream interpolation or expansion.
-    - `grid` is intended to be passed to functions such as `expand_to_grid()`.
     """
     # Open reference grid file based on whether we are using an SSP scenario
     ref = xr.open_dataset(SSP_REF_GRID if ssp_level else CWA_REF_GRID,
@@ -165,10 +159,10 @@ def generate_cwa_outputs(start_date: str, end_date: str
 
     Returns:
         Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
-            - tread_outputs (xr.Dataset): An xarray Dataset containing the
-                                          generated TReAD output data.
-            - era5_outputs (xr.Dataset): An xarray Dataset containing the
-                                         generated ERA5 output data.
+            - hr_outputs (xr.Dataset): An xarray Dataset containing the
+                                       generated TReAD output data.
+            - lr_outputs (xr.Dataset): An xarray Dataset containing the
+                                       generated ERA5 output data.
             - grid_coords (xr.Dataset): An xarray Dataset containing the
                                         coordinates of the reference grid.
     """
@@ -210,22 +204,24 @@ def generate_ssp_outputs(start_date: str, end_date: str, ssp_level: str
 
     Returns:
         Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: A tuple containing three elements:
-            - taiesm3p5_outputs (xr.Dataset): An xarray Dataset containing the
-                                              generated TaiESM 3.5km output data.
-            - taiesm100_outputs (xr.Dataset): An xarray Dataset containing the
-                                              generated TaiESM 100km output data.
+            - hr_outputs (xr.Dataset): An xarray Dataset containing the
+                                       generated TaiESM 3.5km output data.
+            - lr_outputs (xr.Dataset): An xarray Dataset containing the
+                                       generated TaiESM 100km output data.
             - grid_coords (xr.Dataset): An xarray Dataset containing the
                                         coordinates of the reference grid.
     """
     grid, grid_coords, _ = _get_ref_grid(ssp_level)
 
     hr_outputs = _pack_outputs(
-        "TaiESM_3.5km", *get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level),
+        f"[{ssp_level}] TaiESM_3.5km",
+        *get_taiesm3p5_dataset(grid, start_date, end_date, ssp_level),
         get_cwb_fields, get_taiesm3p5_channels()
     )
 
     lr_outputs = _pack_outputs(
-        "TaiESM_100km", *get_taiesm100_dataset(grid, start_date, end_date, ssp_level),
+        f"[{ssp_level}] TaiESM_100km",
+        *get_taiesm100_dataset(grid, start_date, end_date, ssp_level),
         get_era5_fields, get_taiesm100_channels()
     )
 

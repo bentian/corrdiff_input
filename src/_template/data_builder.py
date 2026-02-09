@@ -1,7 +1,7 @@
 from typing import Tuple, Optional
 import xarray as xr
 
-# TODO: Modify data_loader/__init__.py to expose these methods
+# TODO: modify data_loader/__init__.py to expose these methods
 from data_loader import get_hr_dataset, get_lr_dataset, get_hr_channels, get_lr_channels
 from tensor_fields import get_cwb_fields, get_era5_fields
 
