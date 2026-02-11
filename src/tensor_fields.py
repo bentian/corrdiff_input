@@ -66,21 +66,14 @@ def create_and_process_dataarray(
     Returns:
     - xr.DataArray: An xarray.DataArray with assigned coordinates and chunks.
     """
-    # Create the DataArray
-    dataarray = xr.DataArray(
-        stack_data,
-        dims=dims,
-        coords=coords,
-        name=name
+    return (
+        xr.DataArray(
+            stack_data,
+            dims=dims, coords=coords, name=name,
+        )
+        .assign_coords(time=lambda da: da.time.dt.floor("D"))   # assign daily floored time
+        .chunk(chunk_sizes)
     )
-
-    # Assign daily floored time to the 'time' coordinate
-    dataarray = dataarray.assign_coords(time=dataarray["time"].dt.floor("D"))
-
-    # Chunk the DataArray
-    dataarray = dataarray.chunk(chunk_sizes)
-
-    return dataarray
 
 # -------------------------------------------------------------------
 # High-res fields (cwb_*)
@@ -135,9 +128,9 @@ def get_cwb_fields(
     - This function acts as a thin wrapper assembling all intermediate steps
       (variable extraction, stacking, centering, scaling, validity).
     """
-    # Prepare for generation
     cwb_channel = np.arange(len(channels))
     cwb_pressure = get_cwb_pressure(cwb_channel, channels)
+
     # Define variable names and create DataArray for cwb_variable.
     cwb_var_names = np.array(list(highres_ds.data_vars.keys()), dtype="<U26")
 
@@ -154,14 +147,14 @@ def get_cwb_fields(
 
 def get_cwb_pressure(cwb_channel: np.ndarray, channels: Dict[str, str]) -> xr.DataArray:
     """
-    Create a DataArray for TReAD pressure levels.
+    Create a DataArray for CWB pressure levels.
 
     Parameters:
-        cwb_channel (array-like): Array of TReAD channel indices.
+        cwb_channel (array-like): Array of CWB channel indices.
         channels (dict): Mapping of variable names used to determine the number of channels.
 
     Returns:
-        xarray.DataArray: DataArray representing TReAD pressure levels.
+        xarray.DataArray: DataArray representing CWB pressure levels.
     """
     return xr.DataArray(
         data=da.from_array(
@@ -177,15 +170,15 @@ def get_cwb_pressure(cwb_channel: np.ndarray, channels: Dict[str, str]) -> xr.Da
 def get_cwb_variable(cwb_var_names: List[str], cwb_pressure: xr.DataArray,
                      channels: Dict[str, str]) -> xr.DataArray:
     """
-    Create a DataArray for TReAD variable names.
+    Create a DataArray for CWB variable names.
 
     Parameters:
-        cwb_var_names (array-like): Array of TReAD variable names.
-        cwb_pressure (xarray.DataArray): DataArray of TReAD pressure levels.
+        cwb_var_names (array-like): Array of CWB variable names.
+        cwb_pressure (xarray.DataArray): DataArray of CWB pressure levels.
         channels (dict): Mapping of variable names used to determine the number of channels.
 
     Returns:
-        xarray.DataArray: DataArray representing TReAD variables.
+        xarray.DataArray: DataArray representing CWB variables.
     """
     cwb_vars_dask = da.from_array(cwb_var_names, chunks=(len(channels),))
     return xr.DataArray(
@@ -204,14 +197,14 @@ def get_cwb(
         cwb_variable: xr.DataArray
     ) -> xr.DataArray:
     """
-    Generate the CWB DataArray by stacking TReAD output variables.
+    Generate the CWB DataArray by stacking highres_ds output variables.
 
     Parameters:
-        highres_ds (xarray.Dataset): The regridded TReAD dataset.
-        cwb_var_names (array-like): Array of TReAD variable names.
-        cwb_channel (array-like): Array of TReAD channel indices.
-        cwb_pressure (xarray.DataArray): DataArray of TReAD pressure levels.
-        cwb_variable (xarray.DataArray): DataArray of TReAD variables.
+        highres_ds (xarray.Dataset): The regridded high-resolution dataset.
+        cwb_var_names (array-like): Array of `highres_ds` variable names.
+        cwb_channel (array-like): Array of `highres_ds` channel indices.
+        cwb_pressure (xarray.DataArray): DataArray of `highres_ds` pressure levels.
+        cwb_variable (xarray.DataArray): DataArray of `highres_ds` variables.
 
     Returns:
         xarray.DataArray: The processed CWB DataArray.
@@ -245,7 +238,7 @@ def get_cwb_center(highres_ds: xr.Dataset, cwb_pressure: xr.DataArray,
 
     Parameters:
         highres_ds (xarray.Dataset): The dataset containing the variables.
-        cwb_pressure (xarray.DataArray): DataArray of TReAD pressure levels.
+        cwb_pressure (xarray.DataArray): DataArray of `highres_ds` pressure levels.
         cwb_variable (xarray.DataArray): DataArray of variable names to calculate the mean for.
 
     Returns:
@@ -277,7 +270,7 @@ def get_cwb_scale(highres_ds: xr.Dataset, cwb_pressure: xr.DataArray,
 
     Parameters:
         highres_ds (xarray.Dataset): The dataset containing the variables.
-        cwb_pressure (xarray.DataArray): DataArray of TReAD pressure levels.
+        cwb_pressure (xarray.DataArray): DataArray of `highres_ds` pressure levels.
         cwb_variable (xarray.DataArray): DataArray of variable names to calculate the standard
                                          deviation for.
 
@@ -391,7 +384,7 @@ def get_era5(lowres_ds: xr.Dataset, channels: dict) -> xr.DataArray:
     Constructs a consolidated ERA5 DataArray by stacking specified variables across channels.
 
     Parameters:
-        lowres_ds (xarray.Dataset): The processed ERA5 dataset after regridding.
+        lowres_ds (xarray.Dataset): The regridded low-resolution dataset.
         channels (dict): Mapping of variable names used to determine the number of channels.
 
     Returns:
