@@ -24,6 +24,7 @@ pipeline: it standardizes file paths, variable naming, coordinate systems, and
 basic units so that TaiESM 100 km data can be processed alongside ERA5 with
 minimal special-case logic.
 """
+
 from pathlib import Path
 from typing import List, Tuple
 
@@ -32,14 +33,16 @@ import pandas as pd
 import xarray as xr
 
 from .era5 import BASELINE_CHANNELS
-from .util import is_local_testing
+from .util import regrid_dataset, is_local_testing
 
 TAIWAN_CLAT, TAIWAN_CLON = 23.6745, 120.9465  # Center latitude / longitude
 TAIESM_100_CHANNELS = BASELINE_CHANNELS
 
+
 def get_taiesm100_channels() -> dict:
     """Returns TaiESM 100km channel list."""
     return TAIESM_100_CHANNELS
+
 
 def get_data_dir(ssp_level: str) -> str:
     """
@@ -60,15 +63,15 @@ def get_data_dir(ssp_level: str) -> str:
     This helper centralizes environment-aware path logic so other code does not
     need to handle local vs. remote directory differences.
     """
-    return "../data/taiesm100" if is_local_testing() else \
-            f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1/{ssp_level}"
+    return (
+        "../data/taiesm100"
+        if is_local_testing()
+        else f"/lfs/home/corrdiff/data/013-TaiESM_Corrdiff/TaiESM1/{ssp_level}"
+    )
+
 
 def get_prs_paths(
-    folder: str,
-    variables: List[str],
-    start_date: str,
-    end_date: str,
-    ssp_level: str
+    folder: str, variables: List[str], start_date: str, end_date: str, ssp_level: str
 ) -> List[Path]:
     """
     Generate file paths for TaiESM 100km pressure level data files within a specified date range.
@@ -83,23 +86,28 @@ def get_prs_paths(
     Returns:
         list: A list of file paths corresponding to the specified variables and date range.
     """
-    date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
+    date_range = (
+        pd.date_range(start=start_date, end=end_date, freq="MS")
+        .strftime("%Y%m")
+        .tolist()
+    )
     folder_path = Path(folder)
     if is_local_testing():
-        return [folder_path / "PRS" / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
-                for var in variables for yyyymm in date_range]
+        return [
+            folder_path / "PRS" / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
+            for var in variables
+            for yyyymm in date_range
+        ]
 
     return [
         folder_path / var / f"TaiESM1_{ssp_level}_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
-        for var in variables for yyyymm in date_range
+        for var in variables
+        for yyyymm in date_range
     ]
 
+
 def get_sfc_paths(
-    folder: str,
-    variables: List[str],
-    start_date: str,
-    end_date: str,
-    ssp_level: str
+    folder: str, variables: List[str], start_date: str, end_date: str, ssp_level: str
 ) -> List[Path]:
     """
     Generate file paths for TaiESM 100km surface data files within a specified date range.
@@ -114,16 +122,25 @@ def get_sfc_paths(
     Returns:
         list: A list of file paths corresponding to the specified variables and date range.
     """
-    date_range = pd.date_range(start=start_date, end=end_date, freq="MS").strftime("%Y%m").tolist()
+    date_range = (
+        pd.date_range(start=start_date, end=end_date, freq="MS")
+        .strftime("%Y%m")
+        .tolist()
+    )
     folder_path = Path(folder)
     if is_local_testing():
-        return [folder_path / "SFC" / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
-                for var in variables for yyyymm in date_range]
+        return [
+            folder_path / "SFC" / f"TaiESM1_ssp126_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
+            for var in variables
+            for yyyymm in date_range
+        ]
 
     return [
         folder_path / var / f"TaiESM1_{ssp_level}_r1i1p1f1_{var}_EA_{yyyymm}_day.nc"
-        for var in variables for yyyymm in date_range
+        for var in variables
+        for yyyymm in date_range
     ]
+
 
 def get_pressure_level_data(folder: str, duration: slice, ssp_level: str) -> xr.Dataset:
     """
@@ -137,20 +154,25 @@ def get_pressure_level_data(folder: str, duration: slice, ssp_level: str) -> xr.
     Returns:
         xarray.Dataset: Processed pressure level data.
     """
-    pressure_levels = sorted({ch['pressure'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch})
-    pressure_level_vars = list(dict.fromkeys(
-        ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' in ch
-    ))
-
-    # Read data from file
-    prs_data = (
-        xr.open_mfdataset(
-            get_prs_paths(folder, pressure_level_vars, duration.start, duration.stop, ssp_level),
-            combine="by_coords", compat="no_conflicts", data_vars="all"
-        ).sel(level=pressure_levels, time=duration)
+    pressure_levels = sorted(
+        {ch["pressure"] for ch in TAIESM_100_CHANNELS if "pressure" in ch}
+    )
+    pressure_level_vars = list(
+        dict.fromkeys(ch["name"] for ch in TAIESM_100_CHANNELS if "pressure" in ch)
     )
 
+    # Read data from file
+    prs_data = xr.open_mfdataset(
+        get_prs_paths(
+            folder, pressure_level_vars, duration.start, duration.stop, ssp_level
+        ),
+        combine="by_coords",
+        compat="no_conflicts",
+        data_vars="all",
+    ).sel(level=pressure_levels, time=duration)
+
     return prs_data
+
 
 def get_surface_data(folder: str, duration: slice, ssp_level: str) -> xr.Dataset:
     """
@@ -165,22 +187,24 @@ def get_surface_data(folder: str, duration: slice, ssp_level: str) -> xr.Dataset
     Returns:
         xarray.Dataset: Processed surface data.
     """
-    surface_vars = list(dict.fromkeys(
-        ch['name'] for ch in TAIESM_100_CHANNELS if 'pressure' not in ch
-    ))
+    surface_vars = list(
+        dict.fromkeys(ch["name"] for ch in TAIESM_100_CHANNELS if "pressure" not in ch)
+    )
 
     # Read data from file
-    sfc_data = (
-        xr.open_mfdataset(
-            get_sfc_paths(folder, surface_vars, duration.start, duration.stop, ssp_level),
-            combine='by_coords', compat="no_conflicts", data_vars="all"
-        ).sel(time=duration)
-    )
+    sfc_data = xr.open_mfdataset(
+        get_sfc_paths(folder, surface_vars, duration.start, duration.stop, ssp_level),
+        combine="by_coords",
+        compat="no_conflicts",
+        data_vars="all",
+    ).sel(time=duration)
 
     return sfc_data
 
-def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
-                          ssp_level: str) -> Tuple[xr.Dataset, xr.Dataset]:
+
+def get_taiesm100_dataset(
+    grid: xr.Dataset, start_date: str, end_date: str, ssp_level: str
+) -> Tuple[xr.Dataset, xr.Dataset]:
     """
     Retrieve, process, and regrid TaiESM 100km datasets for a specified date range, aligning with a
     reference grid.
@@ -214,32 +238,48 @@ def get_taiesm100_dataset(grid: xr.Dataset, start_date: str, end_date: str,
     folder = get_data_dir(ssp_level)
 
     # Process and merge surface and pressure levels data
-    sfc_prs_ds = xr.merge([
-        get_surface_data(folder, duration, ssp_level),
-        get_pressure_level_data(folder, duration, ssp_level),
-    ], compat="no_conflicts")
+    sfc_prs_ds = xr.merge(
+        [
+            get_surface_data(folder, duration, ssp_level),
+            get_pressure_level_data(folder, duration, ssp_level),
+        ],
+        compat="no_conflicts",
+    )
 
     # Convert time for nc dump, rename spatial & variables, and drop unused bounds vars
     sfc_prs_ds = (
-        sfc_prs_ds
-        .assign_coords(time=pd.to_datetime(sfc_prs_ds["time"].astype(str)))
-        .rename({
-            "lat": "latitude",
-            "lon": "longitude",
-            **{ch["name"]: ch["variable"] for ch in TAIESM_100_CHANNELS},
-        })
+        sfc_prs_ds.assign_coords(time=pd.to_datetime(sfc_prs_ds["time"].astype(str)))
+        .rename(
+            {
+                "lat": "latitude",
+                "lon": "longitude",
+                **{ch["name"]: ch["variable"] for ch in TAIESM_100_CHANNELS},
+            }
+        )
         .drop_vars(["lat_bnds", "lon_bnds"], errors="ignore")
     )
 
-    cropped_ds = sfc_prs_ds.sel(
-        latitude=slice(TAIWAN_CLAT - 20, TAIWAN_CLAT + 20),
-        longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20)
-    )
+    regrid = False
+    if regrid:
+        # Regrid to REF grid first to keep extrapolated edge values smooth
+        output_ds = regrid_dataset(sfc_prs_ds, grid)
 
-    # Expand cropped data to REF grid size, ignoring original latitude/longtitude.
-    output_ds = expand_to_grid(cropped_ds, grid)
+        lat, lon = grid.XLAT, grid.XLONG
+        cropped_ds = sfc_prs_ds.sel(
+            latitude=slice(lat.min().item(), lat.max().item()),
+            longitude=slice(lon.min().item(), lon.max().item()),
+        )
+    else:
+        cropped_ds = sfc_prs_ds.sel(
+            latitude=slice(TAIWAN_CLAT - 20, TAIWAN_CLAT + 20),
+            longitude=slice(TAIWAN_CLON - 20, TAIWAN_CLON + 20),
+        )
+
+        # Expand cropped data to REF grid size, ignoring original latitude/longtitude.
+        output_ds = expand_to_grid(cropped_ds, grid)
 
     return cropped_ds, output_ds
+
 
 def expand_to_grid(ds: xr.Dataset, grid: xr.Dataset) -> xr.Dataset:
     """
@@ -291,17 +331,20 @@ def expand_to_grid(ds: xr.Dataset, grid: xr.Dataset) -> xr.Dataset:
     )
 
     # Index-space positions for REF grid
-    new_i = xr.DataArray(np.linspace(0, nlat - 1, ny), dims=("south_north",), name="latitude")
-    new_j = xr.DataArray(np.linspace(0, nlon - 1, nx), dims=("west_east",), name="longitude")
+    new_i = xr.DataArray(
+        np.linspace(0, nlat - 1, ny), dims=("south_north",), name="latitude"
+    )
+    new_j = xr.DataArray(
+        np.linspace(0, nlon - 1, nx), dims=("west_east",), name="longitude"
+    )
 
     # Interpolate in index space, remove latitude/longitude, and attach REF grid coords
     expanded = (
-        ds_idx
-        .interp(latitude=new_i, longitude=new_j)
+        ds_idx.interp(latitude=new_i, longitude=new_j)
         .drop_vars(["latitude", "longitude", "time_bnds"], errors="ignore")
         .assign_coords(
             XLAT=(("south_north", "west_east"), grid["XLAT"].values),
-            XLONG=(("south_north", "west_east"), grid["XLONG"].values)
+            XLONG=(("south_north", "west_east"), grid["XLONG"].values),
         )
     )
 
