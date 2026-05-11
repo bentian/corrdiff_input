@@ -117,7 +117,7 @@ __Naming Components__
   - `SA`: South Africa
 - `<train_config>`: Training configuration used to build the emulator
   - `ESD`: ESD_pseudo_reality
-  - `EMul`: Emulator_hist_future
+  - `EMu`: Emulator_hist_future
 - `<gcm_config>`: GCM configuration used for testing
   - `TG`: _<TRAINING_GCM>_
   - `OOSG`: _<OUT_OF_SAMPLE_GCM>_
