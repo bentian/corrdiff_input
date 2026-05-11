@@ -98,7 +98,7 @@ nc_dump/<start_date>_<end_date>/
 
 ### CORDEX Dataset Generation
 
-Run the following command to generate all CORDEX CorrDiff datasets:
+Run the following command to generate all [CORDEX](https://github.com/WCRP-CORDEX/ml-benchmark) datasets for CorrDiff:
 ```
 python src/corrdiff_datagen.py cordex
 ```
@@ -112,20 +112,20 @@ corrdiff_test_<domain>_<gcm_config>_<perfect_config>.zarr
 
 __Naming Components__
 - `<domain>`: Regional CORDEX domain
-  - ALPS
-  - NZ
-  - SA
+  - `ALPS`: Europe
+  - `NZ`: New Zealand
+  - `SA`: South Africa
 - `<train_config>`: Training configuration used to build the emulator
-  - ESD_pseudo_reality
-  - Emulator_hist_future
+  - `ESD`: ESD_pseudo_reality
+  - `EMul`: Emulator_hist_future
 - `<gcm_config>`: GCM configuration used for testing
-  - TG `<TRAINING_GCM>`
-  - OOSG `<OUT_OF_SAMPLE_GCM>`
-- `<perfect_config>`: Indicates whether perfect boundary conditions are used:
-  - perfect
-  - imperfect
+  - `TG`: _<TRAINING_GCM>_
+  - `OOSG`: _<OUT_OF_SAMPLE_GCM>_
+- `<perfect_config>`: Indicates whether upscaled predictors are used:
+  - `perfect`: uses upscaled predictors
+  - `imperfect`: not using upscaled predictors
 
-Each dataset corresponds to a unique combination of CORDEX domain, training configuration or GCM configuration, and boundary-condition setting.
+Each dataset corresponds to a unique combination of CORDEX domain, training configuration or GCM configuration, and whether upscaled predictors are used.
 
 ## 2️⃣ Generate Multi-Year Datasets (avoid OOM)
 
