@@ -38,6 +38,7 @@ This module is intended to be used by higher-level dataset assembly and
 serialization code (e.g., CorrDiff Zarr generators), rather than directly
 by model training code.
 """
+
 from pathlib import Path
 from typing import Dict, List, Tuple, Union, Iterable
 
@@ -59,7 +60,7 @@ DIM_LATLON_RENAME = {"lat": "south_north", "lon": "west_east"}
 
 CORDEX_HR_CHANNELS: Dict[str, dict] = {
     "pr": "precipitation",
-    "tasmax": "max_surface_temperature"
+    "tasmax": "max_surface_temperature",
 }
 
 CORDEX_LR_CHANNELS: List[Dict[str, dict]] = [
@@ -74,16 +75,18 @@ CORDEX_LR_CHANNELS: List[Dict[str, dict]] = [
             ("v", "northward_wind"),
         )
     ],
-    {'name': 'orog', 'variable': 'orography'}
+    {"name": "orog", "variable": "orography"},
 ]
 
 # -------------------------------------------------------------------
 # Channel list getters
 # -------------------------------------------------------------------
 
+
 def get_hr_channels() -> dict:
     """Returns Cordex HR channel list."""
     return CORDEX_HR_CHANNELS
+
 
 def get_lr_channels() -> dict:
     """Returns Cordex LR channel list."""
@@ -94,9 +97,12 @@ def get_lr_channels() -> dict:
 # Directory / File paths
 # -------------------------------------------------------------------
 
+
 def _data_root() -> Path:
     """Root directory for CORDEX train/test data."""
-    return Path("../data/cordex" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX")
+    return Path(
+        "../data/cordex" if is_local_testing() else "/lfs/home/corrdiff/data/40-CORDEX"
+    )
 
 
 def train_dir(exp_domain: str, train_config: str) -> Path:
@@ -129,9 +135,15 @@ def _get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Pa
     prefix = GCM_SET[exp_domain][test_config]
 
     return [
-        base / p / "predictors" / ("perfect" if perfect else "imperfect") / f"{prefix}_{y}.nc"
+        base
+        / p
+        / "predictors"
+        / ("perfect" if perfect else "imperfect")
+        / f"{prefix}_{y}.nc"
         for p, y in [
-            ("historical", "1981-2000"), ("mid_century", "2041-2060"), ("end_century", "2080-2099")
+            ("historical", "1981-2000"),
+            ("mid_century", "2041-2060"),
+            ("end_century", "2080-2099"),
         ]
     ]
 
@@ -139,6 +151,7 @@ def _get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Pa
 # -------------------------------------------------------------------
 # Helpers to create HR / LR datasets
 # -------------------------------------------------------------------
+
 
 def _load_ds(
     paths: Union[Path, str, Iterable[Union[Path, str]]],
@@ -171,15 +184,19 @@ def _load_ds(
     """
     is_iterable = isinstance(paths, Iterable) and not isinstance(paths, (str, Path))
     debug_slice = (
-        slice("1981-01-01", "1981-01-31") if is_iterable else slice("1961-01-01", "1961-01-31")
+        slice("1981-01-01", "1981-01-31")
+        if is_iterable
+        else slice("1961-01-01", "1961-01-31")
     )
 
-    ds = xr.open_mfdataset(paths, **open_kwargs).assign_coords(time=lambda d: d.time.dt.floor("D"))
+    ds = xr.open_mfdataset(paths, **open_kwargs).assign_coords(
+        time=lambda d: d.time.dt.floor("D")
+    )
     return ds.sel(time=debug_slice) if DEBUG else ds
 
 
 def _align_static_grid(
-    static_ds: xr.Dataset
+    static_ds: xr.Dataset,
 ) -> Tuple[xr.Dataset, xr.DataArray, xr.DataArray, Dict[str, str]]:
     """
     Align static_fields to a consistent grid interface.
@@ -199,7 +216,9 @@ def _align_static_grid(
     # Choose which dim rename to use:
     # - curvilinear grid (ALPS): lat/lon are 2D on (y,x)
     # - regular grid (NZ): lat/lon are 1D dims (lat,lon)
-    dim_rename = DIM_YX_RENAME if {"y", "x"}.issubset(static_ds.dims) else DIM_LATLON_RENAME
+    dim_rename = (
+        DIM_YX_RENAME if {"y", "x"}.issubset(static_ds.dims) else DIM_LATLON_RENAME
+    )
     if not set(dim_rename).issubset(static_ds.dims):
         raise ValueError("static_fields must contain dims (y,x) or (lat,lon)")
 
@@ -207,7 +226,8 @@ def _align_static_grid(
 
     # make 2D XLAT/XLONG on (south_north, west_east)
     xlat, xlon = (
-        (grid["lat"], grid["lon"]) if dim_rename is DIM_YX_RENAME
+        (grid["lat"], grid["lon"])
+        if dim_rename is DIM_YX_RENAME
         else xr.broadcast(grid["lat"], grid["lon"])
     )
 
@@ -225,14 +245,16 @@ def _stack_levels(ds: xr.Dataset) -> tuple[xr.Dataset, dict[str, str]]:
     pressures = sorted({c["pressure"] for c in ch})
     rename_vars = {c["name"]: c["variable"] for c in ch}
 
-    lr_pre = xr.Dataset({
-        s: xr.concat(
-            [ds[f"{s}_{p}"] for p in ps],
-            dim=xr.IndexVariable("level", [float(p) for p in ps]),
-        )
-        for s in rename_vars
-        for ps in ([p for p in pressures if f"{s}_{p}" in ds],)
-    })
+    lr_pre = xr.Dataset(
+        {
+            s: xr.concat(
+                [ds[f"{s}_{p}"] for p in ps],
+                dim=xr.IndexVariable("level", [float(p) for p in ps]),
+            )
+            for s in rename_vars
+            for ps in ([p for p in pressures if f"{s}_{p}" in ds],)
+        }
+    )
 
     return lr_pre, rename_vars
 
@@ -290,7 +312,8 @@ def _prepare_lr_outputs(
 
     lr_rg["orography"] = (
         static_ds["orog"]
-        .rename(dim_rename).astype("float32")
+        .rename(dim_rename)
+        .astype("float32")
         .expand_dims(time=lr_rg.time)
         .transpose("time", "south_north", "west_east")
         .chunk(time=1)
@@ -298,8 +321,8 @@ def _prepare_lr_outputs(
 
     lr_out = (
         lr_rg.assign_coords(grid_coords.coords)
-             .assign_attrs(regrid_method="bilinear")
-             .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
+        .assign_attrs(regrid_method="bilinear")
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
     )
 
     return lr_pre, lr_out
@@ -310,10 +333,12 @@ def _grid_coords_only(xlat: xr.DataArray, xlong: xr.DataArray) -> xr.Dataset:
     Construct a minimal grid-coordinates dataset with
     2D latitude and longitude arrays on (south_north, west_east)
     """
-    return xr.Dataset(coords={
-        "XLAT": (("south_north", "west_east"), xlat.data),
-        "XLONG": (("south_north", "west_east"), xlong.data),
-    })
+    return xr.Dataset(
+        coords={
+            "XLAT": (("south_north", "west_east"), xlat.data),
+            "XLONG": (("south_north", "west_east"), xlong.data),
+        }
+    )
 
 
 def _fake_hr_from_lr(lr: xr.Dataset) -> xr.Dataset:
@@ -335,9 +360,9 @@ def _fake_hr_from_lr(lr: xr.Dataset) -> xr.Dataset:
 # Entry for HR & LR train / test datasets
 # -------------------------------------------------------------------
 
+
 def get_train_datasets(
-    exp_domain: str,
-    train_config: str
+    exp_domain: str, train_config: str
 ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Load and construct standardized CORDEX training datasets for CorrDiff.
@@ -378,11 +403,13 @@ def get_train_datasets(
 
     # HR
     hr_out = (
-        _load_ds(target_path).drop_attrs()
+        _load_ds(target_path)
+        .drop_attrs()
         .rename({**dim_rename, **CORDEX_HR_CHANNELS})
         .assign_coords(XLAT=xlat, XLONG=xlong)
-        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")
-        [["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]]
+        .drop_vars(["lat", "lon", "south_north", "west_east"], errors="ignore")[
+            ["XLAT", "XLONG", *CORDEX_HR_CHANNELS.values()]
+        ]
         .transpose("time", "south_north", "west_east")
         .chunk({"time": 1, "south_north": -1, "west_east": -1})
     )
@@ -390,15 +417,17 @@ def get_train_datasets(
 
     # LR
     grid_coords = _grid_coords_only(xlat, xlong)
-    lr_pre, lr_out = _prepare_lr_outputs(_load_ds(predictor_path), static_ds,
-                                         grid, grid_coords, dim_rename)
+    lr_pre, lr_out = _prepare_lr_outputs(
+        _load_ds(predictor_path), static_ds, grid, grid_coords, dim_rename
+    )
     print(f"\nCordex LR [train] =>\n {lr_out}")
 
     return hr_out, lr_pre, lr_out, grid_coords
 
 
-def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perfect: bool
-                      ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
+def get_test_datasets(
+    exp_domain: str, train_config: str, test_config: str, perfect: bool
+) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, xr.Dataset]:
     """
     Load and construct standardized CORDEX test datasets for CorrDiff.
 
@@ -441,9 +470,15 @@ def get_test_datasets(exp_domain: str, train_config: str, test_config: str, perf
     # LR
     grid_coords = _grid_coords_only(xlat, xlong)
     lr_pre, lr_out = _prepare_lr_outputs(
-        _load_ds(_get_test_paths(exp_domain, test_config, perfect),
-                 combine="by_coords", compat="no_conflicts"),
-        static_ds, grid, grid_coords, dim_rename
+        _load_ds(
+            _get_test_paths(exp_domain, test_config, perfect),
+            combine="by_coords",
+            compat="no_conflicts",
+        ),
+        static_ds,
+        grid,
+        grid_coords,
+        dim_rename,
     )
 
     # Fake HR using LR's `time` coord

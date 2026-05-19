@@ -35,8 +35,10 @@ Key responsibilities
 This script is intended to be run as a standalone entry point in the
 CorrDiff data preparation workflow.
 """
+
 import sys
 from pathlib import Path
+from typing import Optional
 from itertools import product
 
 import xarray as xr
@@ -45,9 +47,12 @@ from numcodecs import Blosc
 from dask.diagnostics import ProgressBar
 
 from data_builder import (
-    GRID_COORD_KEYS, generate_cwa_outputs,
-    generate_ssp_outputs, validate_ssp_level,
-    generate_cordex_train_outputs, generate_cordex_test_outputs
+    GRID_COORD_KEYS,
+    generate_cwa_outputs,
+    generate_ssp_outputs,
+    validate_ssp_level,
+    generate_cordex_train_outputs,
+    generate_cordex_test_outputs,
 )
 
 DEBUG = False  # Set to True to enable debugging
@@ -59,7 +64,7 @@ def dump_regrid_netcdf(
     hr_pre_regrid: xr.Dataset,
     hr_post_regrid: xr.Dataset,
     lr_pre_regrid: xr.Dataset,
-    lr_post_regrid: xr.Dataset
+    lr_post_regrid: xr.Dataset,
 ) -> None:
     """
     Saves the provided datasets to NetCDF files within a specified subdirectory.
@@ -81,7 +86,7 @@ def dump_regrid_netcdf(
         (hr_pre_regrid, "highres_pre_regrid.nc"),
         (hr_post_regrid, "highres_post_regrid.nc"),
         (lr_pre_regrid, "lowres_pre_regrid.nc"),
-        (lr_post_regrid, "lowres_post_regrid.nc")
+        (lr_post_regrid, "lowres_post_regrid.nc"),
     ]:
         dataset.to_netcdf(folder / name)
 
@@ -101,16 +106,25 @@ def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
       - str: A message describing the result.
     """
     # Required dimensions, coordinates and data variables
-    required_dims = [
-        "time", "south_north", "west_east", "cwb_channel", "era5_channel"
-    ]
+    required_dims = ["time", "south_north", "west_east", "cwb_channel", "era5_channel"]
     required_coords = [
-        "time", "XLONG", "XLAT", "cwb_pressure", "cwb_variable",
-        "era5_scale", "era5_pressure", "era5_variable"
+        "time",
+        "XLONG",
+        "XLAT",
+        "cwb_pressure",
+        "cwb_variable",
+        "era5_scale",
+        "era5_pressure",
+        "era5_variable",
     ]
     required_vars = [
-        "cwb", "cwb_center", "cwb_scale", "cwb_valid",
-        "era5", "era5_center", "era5_valid"
+        "cwb",
+        "cwb_center",
+        "cwb_scale",
+        "cwb_valid",
+        "era5",
+        "era5_center",
+        "era5_valid",
     ]
 
     # Check required dimensions
@@ -120,7 +134,10 @@ def verify_dataset(ds: xr.Dataset) -> tuple[bool, str]:
     if ds.sizes["south_north"] != ds.sizes["west_east"]:
         return False, "Dimensions 'south_north' and 'west_east' are not equal."
     if ds.sizes["south_north"] % 16 != 0:
-        return False, "Dimensions 'south_north' and 'west_east' are not multiples of 16."
+        return (
+            False,
+            "Dimensions 'south_north' and 'west_east' are not multiples of 16.",
+        )
 
     # Check coordinates
     missing_coords = [coord for coord in required_coords if coord not in ds.coords]
@@ -168,35 +185,52 @@ def build_out(hr_outputs, lr_outputs, grid_coords, tag: str) -> xr.Dataset:
         Consolidated CorrDiff dataset containing HR and LR variables, coordinates,
         and metadata, ready for validation and serialization.
     """
-    hr_keys = ["cwb", "cwb_variable", "cwb_center", "cwb_scale", "cwb_valid",
-               "pre_regrid", "post_regrid"]
-    lr_keys = ["era5", "era5_center", "era5_scale", "era5_valid",
-               "pre_regrid", "post_regrid"]
+    hr_keys = [
+        "cwb",
+        "cwb_variable",
+        "cwb_center",
+        "cwb_scale",
+        "cwb_valid",
+        "pre_regrid",
+        "post_regrid",
+    ]
+    lr_keys = [
+        "era5",
+        "era5_center",
+        "era5_scale",
+        "era5_valid",
+        "pre_regrid",
+        "post_regrid",
+    ]
     hr, lr = dict(zip(hr_keys, hr_outputs)), dict(zip(lr_keys, lr_outputs))
 
-    out = (
-        xr.Dataset(
-            data_vars={
-                "cwb": hr["cwb"], "cwb_center": hr["cwb_center"],
-                "cwb_scale": hr["cwb_scale"], "cwb_valid": hr["cwb_valid"],
-
-                "era5": lr["era5"], "era5_center": lr["era5_center"],
-                "era5_valid": lr["era5_valid"],
-            },
-            coords={
-                **{k: grid_coords[k] for k in GRID_COORD_KEYS},
-                "XTIME": XTIME,
-                "time": hr["cwb"].time,
-                "cwb_variable": hr["cwb_variable"],
-                "era5_scale": ("era5_channel", lr["era5_scale"].data),
-            },
-        )
-        .drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
-    )
+    out = xr.Dataset(
+        data_vars={
+            "cwb": hr["cwb"],
+            "cwb_center": hr["cwb_center"],
+            "cwb_scale": hr["cwb_scale"],
+            "cwb_valid": hr["cwb_valid"],
+            "era5": lr["era5"],
+            "era5_center": lr["era5_center"],
+            "era5_valid": lr["era5_valid"],
+        },
+        coords={
+            **{k: grid_coords[k] for k in GRID_COORD_KEYS},
+            "XTIME": XTIME,
+            "time": hr["cwb"].time,
+            "cwb_variable": hr["cwb_variable"],
+            "era5_scale": ("era5_channel", lr["era5_scale"].data),
+        },
+    ).drop_vars(["south_north", "west_east", "cwb_channel", "era5_channel"])
 
     if DEBUG:
-        dump_regrid_netcdf(tag, hr["pre_regrid"], hr["post_regrid"],
-                           lr["pre_regrid"], lr["post_regrid"])
+        dump_regrid_netcdf(
+            tag,
+            hr["pre_regrid"],
+            hr["post_regrid"],
+            lr["pre_regrid"],
+            lr["post_regrid"],
+        )
 
     return out
 
@@ -212,51 +246,105 @@ def write_to_zarr(out_path: str, out_ds: xr.Dataset) -> None:
     Returns:
         None
     """
-    comp = Blosc(cname='zstd', clevel=3, shuffle=Blosc.SHUFFLE)
-    encoding = { var: {'compressor': comp} for var in out_ds.data_vars }
+    comp = Blosc(cname="zstd", clevel=3, shuffle=Blosc.SHUFFLE)
+    encoding = {var: {"compressor": comp} for var in out_ds.data_vars}
 
     print(f"\nSaving data to {out_path}:")
     with ProgressBar():
-        out_ds.to_zarr(out_path, mode='w', encoding=encoding, compute=True, zarr_format=2)
+        out_ds.to_zarr(
+            out_path, mode="w", encoding=encoding, compute=True, zarr_format=2
+        )
 
     print(f"Data successfully saved to [{out_path}]")
 
 
-def create_corrdiff_zarr(prefix: str, tag: str, outputs) -> None:
+def create_corrdiff_zarr(
+    prefix: str,
+    tag: str,
+    outputs,
+    train_center_scale: Optional[dict[str, xr.DataArray]] = None,
+) -> Optional[dict[str, xr.DataArray]]:
     """
     Build, validate, and write a CorrDiff dataset to a Zarr store.
 
     This function:
       1) Builds an output dataset using ``build_out``
-      2) Prints a summary of the dataset
-      3) Verifies dataset integrity using ``verify_dataset``
-      4) Writes the dataset to a Zarr directory if verification succeeds
+      2) Optionally replaces normalization statistics using training values
+         (for CORDEX test datasets)
+      3) Prints a summary of the dataset
+      4) Verifies dataset integrity using ``verify_dataset``
+      5) Writes the dataset to a Zarr directory if verification succeeds
+      6) Optionally returns normalization statistics
+         (for CORDEX training datasets)
 
     Parameters
     ----------
     prefix : str
-        Filename prefix for the output Zarr store (e.g. ``"corrdiff_dataset"``).
+        Filename prefix for the output Zarr store (e.g., ``corrdiff_dataset``).
+
     tag : str
-        Tag identifying the dataset configuration (used in dataset metadata
-        and output filename).
+        Tag identifying the dataset configuration, used in output filenames.
+
     outputs :
         Tuple of outputs returned by a generator function
-        (e.g. ``generate_cwa_outputs`` or ``generate_cordex_train_outputs``).
+        (e.g., ``generate_cwa_outputs`` or ``generate_cordex_train_outputs``).
+
+    train_center_scale : dict[str, xr.DataArray], optional
+        Normalization statistics from a CORDEX training dataset.
+        When provided for CORDEX test datasets, the following variables
+        are replaced in the generated dataset:
+
+        - ``era5_center``
+        - ``era5_scale``
+        - ``cwb_center``
+        - ``cwb_scale``
+
+        This ensures test datasets use the same normalization parameters
+        as the corresponding training dataset.
 
     Returns
     -------
-    None
-        The dataset is written to disk as ``<prefix>_<tag>.zarr``.
+    dict[str, xr.DataArray] or None
+        For CORDEX training datasets (``prefix.startswith("cordex_train")``),
+        returns a dictionary containing normalization statistics:
+
+        - ``era5_center``
+        - ``era5_scale``
+        - ``cwb_center``
+        - ``cwb_scale``
+
+        Otherwise returns ``None``.
+
+    Notes
+    -----
+    The dataset is written to disk as: ``<prefix>_<tag>.zarr``
     """
     ds = build_out(*outputs, tag=tag)
-    print(f"\nZARR dataset =>\n{ds}")
 
+    # Replace normalization using training statistics for CORDEX test sets
+    if prefix.startswith("cordex_test") and train_center_scale is not None:
+        print("\n[CORDEX test] Replace normalization using training statistics")
+        for key, value in train_center_scale.items():
+            ds[key] = value
+
+    print(f"\nZARR dataset =>\n{ds}")
     ok, msg = verify_dataset(ds)
     if not ok:
         print(f"\nDataset verification failed => {msg}")
-        return
+        return None
 
     write_to_zarr(f"{prefix}_{tag}.zarr", ds)
+
+    # Return normalization parameters for CORDEX training sets
+    if prefix.startswith("cordex_train"):
+        return {
+            "era5_center": ds["era5_center"],
+            "era5_scale": ds["era5_scale"],
+            "cwb_center": ds["cwb_center"],
+            "cwb_scale": ds["cwb_scale"],
+        }
+
+    return None
 
 
 def create_cordex_zarrs() -> None:
@@ -268,16 +356,23 @@ def create_cordex_zarrs() -> None:
     for exp_domain in exp_domains:
         # train
         for train_cfg in train_cfgs:
-            create_corrdiff_zarr("cordex_train", f"{exp_domain}_{train_cfg[:3]}",
-                                    generate_cordex_train_outputs(exp_domain, train_cfg))
-
-        # test (TG / OOSG) x (perfect / imperfect)
-        for test_cfg, perfect in product(gcm_sets, [False, True]):
-            suffix = "perfect" if perfect else "imperfect"
-            create_corrdiff_zarr(
-                "cordex_test", f"{exp_domain}_{test_cfg}_{suffix}",
-                generate_cordex_test_outputs(exp_domain, train_cfgs[0], test_cfg, perfect)
+            train_center_scale = create_corrdiff_zarr(
+                "cordex_train",
+                f"{exp_domain}_{train_cfg[:3]}",
+                generate_cordex_train_outputs(exp_domain, train_cfg),
             )
+
+            # test (TG / OOSG) x (perfect / imperfect)
+            for test_cfg, perfect in product(gcm_sets, [False, True]):
+                perfect_mark = "perfect" if perfect else "imperfect"
+                create_corrdiff_zarr(
+                    "cordex_test",
+                    f"{exp_domain}_{test_cfg}_{perfect_mark}-{train_cfg[:3]}",
+                    generate_cordex_test_outputs(
+                        exp_domain, train_cfgs[0], test_cfg, perfect
+                    ),
+                    train_center_scale=train_center_scale,
+                )
 
 
 def main():
@@ -311,14 +406,20 @@ def main():
     # CWA / SSP
     start_date = sys.argv[1]
     end_date = sys.argv[2]
-    ssp_level = validate_ssp_level(sys.argv[3]) if argc == 4 else ''
+    ssp_level = validate_ssp_level(sys.argv[3]) if argc == 4 else ""
 
-    if argc == 3:   # CWA
-        create_corrdiff_zarr("corrdiff_dataset", f"{start_date}_{end_date}",
-                             generate_cwa_outputs(start_date, end_date))
-    elif argc == 4: # SSP
-        create_corrdiff_zarr("corrdiff_dataset", f"{start_date}_{end_date}_{ssp_level}",
-                             generate_ssp_outputs(start_date, end_date, ssp_level))
+    if argc == 3:  # CWA
+        create_corrdiff_zarr(
+            "corrdiff_dataset",
+            f"{start_date}_{end_date}",
+            generate_cwa_outputs(start_date, end_date),
+        )
+    elif argc == 4:  # SSP
+        create_corrdiff_zarr(
+            "corrdiff_dataset",
+            f"{start_date}_{end_date}_{ssp_level}",
+            generate_ssp_outputs(start_date, end_date, ssp_level),
+        )
 
 
 if __name__ == "__main__":
