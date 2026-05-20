@@ -107,7 +107,7 @@ This command produces multiple Zarr datasets with the naming pattern:
 ```
 corrdiff_train_<domain>_<train_config>.zarr
 # or
-corrdiff_test_<domain>_<gcm_config>_<perfect_config>.zarr
+corrdiff_test_<domain>_<gcm_config>_<perfect_config>-<train_config>.zarr
 ```
 
 __Naming Components__
@@ -126,6 +126,8 @@ __Naming Components__
   - `imperfect`: not using upscaled predictors
 
 Each dataset corresponds to a unique combination of CORDEX domain, training configuration or GCM configuration, and whether upscaled predictors are used.
+
+**NOTE**: The test Zarr datasets leverage *\*_center* (mean) and *\*_scale* (std) from training data for normalization / denormalization.
 
 ## 2️⃣ Generate Multi-Year Datasets (avoid OOM)
 

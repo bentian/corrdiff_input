@@ -321,13 +321,14 @@ def create_corrdiff_zarr(
     """
     ds = build_out(*outputs, tag=tag)
 
-    # Replace normalization using training statistics for CORDEX test sets
-    if prefix.startswith("cordex_test") and train_center_scale is not None:
-        print("\n[CORDEX test] Replace normalization using training statistics")
-        for key, value in train_center_scale.items():
-            ds[key] = value
+    # [CORDEX test] Replace normalization using training statistics
+    use_train_norm = prefix.startswith("cordex_test") and train_center_scale is not None
+    if use_train_norm:
+        ds.update(train_center_scale)
 
-    print(f"\nZARR dataset =>\n{ds}")
+    suffix = " (using train center & scale)" if use_train_norm else ""
+    print(f"\nZARR dataset{suffix} =>\n{ds}")
+
     ok, msg = verify_dataset(ds)
     if not ok:
         print(f"\nDataset verification failed => {msg}")
@@ -335,16 +336,14 @@ def create_corrdiff_zarr(
 
     write_to_zarr(f"{prefix}_{tag}.zarr", ds)
 
-    # Return normalization parameters for CORDEX training sets
-    if prefix.startswith("cordex_train"):
-        return {
-            "era5_center": ds["era5_center"],
-            "era5_scale": ds["era5_scale"],
-            "cwb_center": ds["cwb_center"],
-            "cwb_scale": ds["cwb_scale"],
+    return (
+        {  # [CORDEX train] Return normalization parameters
+            key: ds[key]
+            for key in ("era5_center", "era5_scale", "cwb_center", "cwb_scale")
         }
-
-    return None
+        if prefix.startswith("cordex_train")
+        else None
+    )
 
 
 def create_cordex_zarrs() -> None:
@@ -362,7 +361,7 @@ def create_cordex_zarrs() -> None:
                 generate_cordex_train_outputs(exp_domain, train_cfg),
             )
 
-            # test (TG / OOSG) x (perfect / imperfect)
+            # test (TG / OOSG) x (perfect / imperfect) x train_cfg
             for test_cfg, perfect in product(gcm_sets, [False, True]):
                 perfect_mark = "perfect" if perfect else "imperfect"
                 create_corrdiff_zarr(
