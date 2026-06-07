@@ -83,7 +83,7 @@ This will:
 
 ### 🔍 Debugging Regridding Artifacts
 Enable NetCDF dumps in `src/corrdiff_datagen.py`:
-```
+```python
 DEBUG = True  # Set to True to enable debugging
 ```
 
@@ -195,13 +195,13 @@ python generate_wrf_coord.py
 
 1. Modify `ny` and `nx` in `generate_wrf_coord.py`:
 
-```
+```python
 ny, nx = 208, 208               # Desired grid dimensions
 ```
 
 2. Revise `*_REF_GRID` in `src/data_builder.py` acccordingly:
 
-```
+```python
 CWA_REF_GRID = "../ref_grid/wrf_208x208_grid_coords.nc"
 SSP_REF_GRID = "../ref_grid/ssp_208x208_grid_coords.nc"
 ```

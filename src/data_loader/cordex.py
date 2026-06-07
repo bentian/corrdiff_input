@@ -131,7 +131,7 @@ def _get_train_paths(exp_domain: str, train_config: str) -> list[Path]:
 
 def _get_test_paths(exp_domain: str, test_config: str, perfect: bool) -> list[Path]:
     """Get LR predictors paths for test periods (historical/mid/end century)."""
-    base = Path(_data_root()) / f"{exp_domain}_domain" / "test"
+    base = _data_root() / f"{exp_domain}_domain" / "test"
     prefix = GCM_SET[exp_domain][test_config]
 
     return [
@@ -184,9 +184,9 @@ def _load_ds(
     """
     is_iterable = isinstance(paths, Iterable) and not isinstance(paths, (str, Path))
     debug_slice = (
-        slice("1981-01-01", "1981-01-31")
+        slice("1981-01-01", "1981-01-31")  # test
         if is_iterable
-        else slice("1961-01-01", "1961-01-31")
+        else slice("1961-01-01", "1961-01-31")  # train
     )
 
     ds = xr.open_mfdataset(paths, **open_kwargs).assign_coords(
